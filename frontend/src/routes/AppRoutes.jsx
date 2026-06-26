@@ -4,6 +4,9 @@ import Dashboard from "../pages/Dashboard";
 import PortScanner from "../pages/PortScanner";
 import UserManagement from "../pages/UserManagement";
 import Reports from "../pages/Reports";
+import DeviceGroups from "../pages/DeviceGroups";
+import AlertSettings from "../pages/AlertSettings";
+import AlertHistory from "../pages/AlertHistory";
 import { useAuth } from "./AuthContext.jsx";
 
 function ProtectedRoute({ children }) {
@@ -72,6 +75,39 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <Reports />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/groups"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="create_devices">
+              <DeviceGroups />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/alerts"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="manage_users">
+              <AlertSettings />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/alert-history"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="manage_users">
+              <AlertHistory />
+            </PermissionRoute>
           </ProtectedRoute>
         }
       />

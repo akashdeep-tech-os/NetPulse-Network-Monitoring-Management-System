@@ -12,19 +12,24 @@ import {
   deleteDevice,
   bulkDeleteDevices,
   pingAllDevices,
+  pingGroupDevices,
   importDevices,
   exportDevices,
+  getGroups,
 } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
 
 const Dashboard = () => {
   const { isAdmin } = useAuth();
   const [devices, setDevices] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("");
   const [rowHeight, setRowHeight] = useState(50);
   const [editModal, setEditModal] = useState({ device: null, field: null });
   const [headerName, setHeaderName] = useState("");
   const [headerIp, setHeaderIp] = useState("");
+  const [headerGroupId, setHeaderGroupId] = useState("");
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -35,8 +40,18 @@ const Dashboard = () => {
     }
   }, []);
 
+  const fetchGroups = useCallback(async () => {
+    try {
+      const res = await getGroups();
+      setGroups(res.data);
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     fetchDevices();
+    fetchGroups();
   }, []);
 
   useEffect(() => {
@@ -60,7 +75,7 @@ const Dashboard = () => {
       } catch {
         // silently ignore
       }
-    }, 30000); // every 30 seconds
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -70,12 +85,17 @@ const Dashboard = () => {
       return;
     }
     try {
-      await createDevice({
+      const payload = {
         name: headerName.trim(),
         ip_address: headerIp.trim(),
-      });
+      };
+      if (headerGroupId) {
+        payload.group_id = parseInt(headerGroupId);
+      }
+      await createDevice(payload);
       setHeaderName("");
       setHeaderIp("");
+      setHeaderGroupId("");
       fetchDevices();
     } catch (err) {
       alert(err.response?.data?.detail || "Failed to add device");
@@ -122,6 +142,16 @@ const Dashboard = () => {
       fetchDevices();
     } catch {
       alert("Failed to ping devices");
+    }
+  };
+
+  const handlePingGroup = async (groupId) => {
+    if (!groupId) return handlePingAll();
+    try {
+      await pingGroupDevices(groupId);
+      fetchDevices();
+    } catch {
+      alert("Failed to ping group");
     }
   };
 
@@ -238,8 +268,11 @@ const Dashboard = () => {
 
   const filtered = devices.filter(
     (d) =>
-      d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.ip_address.toLowerCase().includes(searchQuery.toLowerCase()),
+      (d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.ip_address.toLowerCase().includes(searchQuery.toLowerCase())) &&
+      (selectedGroup === "" ||
+        (selectedGroup === "ungrouped" && !d.group_id) ||
+        d.group_id === parseInt(selectedGroup)),
   );
 
   const total = devices.length;
@@ -258,9 +291,34 @@ const Dashboard = () => {
       onSearchChange={(e) => setSearchQuery(e.target.value)}
       onImport={handleImport}
       onExport={handleExport}
-      onPingAll={handlePingAll}
+      onPingAll={() => handlePingGroup(selectedGroup)}
     >
       <StatsCards total={total} online={online} offline={offline} />
+
+      {/* Group Filter */}
+      <div className="flex items-center gap-3 mb-3">
+        <select
+          value={selectedGroup}
+          onChange={(e) => setSelectedGroup(e.target.value)}
+          className="px-3 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-800 text-gray-800 dark:text-white"
+        >
+          <option value="">All Devices</option>
+          <option value="ungrouped">Ungrouped</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} ({g.device_count})
+            </option>
+          ))}
+        </select>
+        {selectedGroup && (
+          <button
+            onClick={() => setSelectedGroup("")}
+            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
 
       <DeviceTable
         devices={filtered}

@@ -1,5 +1,7 @@
+import { useState } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import { useTheme } from "../routes/ThemeContext.jsx";
 
 const DashboardLayout = ({
   children,
@@ -15,11 +17,22 @@ const DashboardLayout = ({
   onExport,
   onPingAll,
 }) => {
-  return (
-    <div className="flex bg-slate-100 h-screen overflow-hidden">
-      <Sidebar />
+  const { theme } = useTheme();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+  return (
+    <div className={`flex h-screen overflow-hidden ${
+      theme === "dark" ? "bg-slate-900" : "bg-slate-100"
+    }`}>
+      <Sidebar
+        isCollapsed={isCollapsed}
+        setIsCollapsed={setIsCollapsed}
+        isMobileOpen={isMobileOpen}
+        setIsMobileOpen={setIsMobileOpen}
+      />
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header
           offlineCount={offlineCount}
           name={name}
@@ -32,9 +45,12 @@ const DashboardLayout = ({
           onImport={onImport}
           onExport={onExport}
           onPingAll={onPingAll}
+          onMenuToggle={() => setIsMobileOpen(!isMobileOpen)}
         />
 
-        <main className="px-4 py-3 flex-1 overflow-hidden flex flex-col">{children}</main>
+        <main className="px-3 md:px-4 py-3 flex-1 overflow-hidden flex flex-col">
+          {children}
+        </main>
       </div>
     </div>
   );

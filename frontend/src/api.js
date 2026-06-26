@@ -33,6 +33,7 @@ export const updateDevice = (id, data) => api.put(`/devices/${id}`, data);
 export const deleteDevice = (id) => api.delete(`/devices/${id}`);
 export const bulkDeleteDevices = (ids) => api.post("/devices/bulk-delete", ids);
 export const pingAllDevices = () => api.post("/devices/ping-all");
+export const pingGroupDevices = (groupId) => api.post(`/devices/ping-group/${groupId}`);
 export const importDevices = (devices) => api.post("/devices/import", { devices });
 export const exportDevices = () => api.get("/devices/export");
 export const scanPorts = (data) => api.post("/scan", data);
@@ -48,5 +49,22 @@ export const getReportsOverview = () => api.get("/reports/overview");
 export const getDeviceHistory = (id, hours = 24) => api.get(`/reports/device/${id}/history?hours=${hours}`);
 export const getDowntimeLog = (hours = 24) => api.get(`/reports/downtime?hours=${hours}`);
 export const getAllDevicesReport = (hours = 24) => api.get(`/reports/all-devices?hours=${hours}`);
+
+export const getGroups = () => api.get("/groups");
+export const createGroup = (data) => api.post("/groups", data);
+export const updateGroup = (id, data) => api.put(`/groups/${id}`, data);
+export const deleteGroup = (id) => api.delete(`/groups/${id}`);
+export const assignDevicesToGroup = (groupId, deviceIds) => api.post(`/groups/${groupId}/assign-devices`, deviceIds);
+
+export const getAlertRules = () => api.get("/alerts/rules");
+export const createAlertRule = (data) => api.post("/alerts/rules", data);
+export const updateAlertRule = (id, data) => api.put(`/alerts/rules/${id}`, data);
+export const deleteAlertRule = (id) => api.delete(`/alerts/rules/${id}`);
+export const toggleAlertRule = (id) => api.post(`/alerts/rules/${id}/toggle`);
+export const getAlertLogs = (limit = 100) => api.get(`/alerts/logs?limit=${limit}`);
+export const clearAlertLogs = () => api.delete("/alerts/logs");
+export const getAlertConfig = () => api.get("/alerts/config");
+export const updateAlertConfig = (data) => api.put("/alerts/config", data);
+export const testAlertNotification = (data) => api.post("/alerts/test", data);
 
 export default api;

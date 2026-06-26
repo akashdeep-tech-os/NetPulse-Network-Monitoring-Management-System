@@ -15,19 +15,35 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import engine, get_db, Base
-from models import User, Device, Role, Permission, DeviceStatusHistory
+from models import User, Device, Role, Permission, DeviceStatusHistory, DeviceGroup, AlertRule, AlertLog, AlertConfig
 from schemas import (
     UserResponse, Token, TokenWithPermissions,
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceImport,
     AdminUserCreate, UserRoleUpdate, PortScanRequest, PortScanResponse, PortResult,
     RoleResponse, PermissionResponse,
+    DeviceGroupCreate, DeviceGroupUpdate, DeviceGroupResponse,
+    AlertRuleCreate, AlertRuleUpdate, AlertRuleResponse, AlertLogResponse, NotificationTestRequest,
+    AlertConfigUpdate, AlertConfigResponse,
 )
 from auth import (
     hash_password, verify_password, create_access_token, get_current_user,
     get_user_permissions, require_permission,
 )
+from notifications import send_alert_notification, test_notification
+from sqlalchemy import text
 
 Base.metadata.create_all(bind=engine)
+
+# Auto-migrate: add group_id column if missing
+try:
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(devices)"))
+        columns = [row[1] for row in result]
+        if "group_id" not in columns:
+            conn.execute(text("ALTER TABLE devices ADD COLUMN group_id INTEGER REFERENCES device_groups(id)"))
+            conn.commit()
+except Exception:
+    pass
 
 
 def get_visible_devices(db: Session, current_user: User):
@@ -112,6 +128,115 @@ db.commit()
 db.close()
 
 
+def get_alert_config_value(db, key, default=""):
+    config = db.query(AlertConfig).filter(AlertConfig.key == key).first()
+    return config.value if config else default
+
+
+def set_alert_config_value(db, key, value):
+    config = db.query(AlertConfig).filter(AlertConfig.key == key).first()
+    if config:
+        config.value = value
+    else:
+        config = AlertConfig(key=key, value=value)
+        db.add(config)
+    db.commit()
+
+
+def evaluate_alerts(db, device_results: list[tuple]):
+    """Evaluate alert rules after a ping cycle and send notifications."""
+    rules = db.query(AlertRule).filter(AlertRule.enabled == True).all()
+    if not rules:
+        return
+
+    for rule in rules:
+        devices_to_check = []
+        if rule.target_type == "all":
+            devices_to_check = db.query(Device).all()
+        elif rule.target_type == "group":
+            devices_to_check = db.query(Device).filter(Device.group_id == rule.target_id).all()
+        elif rule.target_type == "device":
+            device = db.query(Device).filter(Device.id == rule.target_id).first()
+            if device:
+                devices_to_check = [device]
+
+        triggered_devices = []
+
+        for device in devices_to_check:
+            if rule.rule_type == "device_offline" and device.status == "Offline":
+                triggered_devices.append(device)
+            elif rule.rule_type == "device_online" and device.status == "Online":
+                triggered_devices.append(device)
+            elif rule.rule_type == "high_latency":
+                if device.latency is not None and rule.threshold_value is not None:
+                    if device.latency > rule.threshold_value:
+                        triggered_devices.append(device)
+
+        if not triggered_devices:
+            continue
+
+        last_log = (
+            db.query(AlertLog)
+            .filter(AlertLog.rule_id == rule.id)
+            .order_by(AlertLog.created_at.desc())
+            .first()
+        )
+        if last_log:
+            from datetime import timedelta
+            cooldown = timedelta(minutes=rule.cooldown_minutes)
+            if (datetime.now(timezone.utc) - last_log.created_at.replace(tzinfo=timezone.utc)) < cooldown:
+                continue
+
+        device_names = ", ".join(d.name for d in triggered_devices[:5])
+        if len(triggered_devices) > 5:
+            device_names += f" and {len(triggered_devices) - 5} more"
+
+        severity = "critical" if rule.rule_type == "device_offline" else "warning"
+        if rule.rule_type == "device_online":
+            severity = "info"
+
+        messages = {
+            "device_offline": f"Device(s) offline: {device_names}",
+            "device_online": f"Device(s) came online: {device_names}",
+            "high_latency": f"High latency detected on: {device_names} (threshold: {rule.threshold_value}ms)",
+        }
+        message = messages.get(rule.rule_type, f"Alert triggered: {device_names}")
+
+        notification_result = send_alert_notification(
+            rule_name=rule.name,
+            message=message,
+            severity=severity,
+            notify_email=rule.notify_email,
+            notify_slack=rule.notify_slack,
+            email_recipients=[r.strip() for r in get_alert_config_value(db, "email_recipients", "").split(",") if r.strip()] or None,
+            slack_webhook_url=get_alert_config_value(db, "slack_webhook_url", "") or None,
+        )
+
+        for device in triggered_devices[:1]:
+            log = AlertLog(
+                rule_id=rule.id,
+                device_id=device.id,
+                message=message,
+                severity=severity,
+                sent_email=notification_result.get("email_sent", False),
+                sent_slack=notification_result.get("slack_sent", False),
+            )
+            db.add(log)
+
+        if len(triggered_devices) > 1:
+            log = AlertLog(
+                rule_id=rule.id,
+                device_id=None,
+                message=message,
+                severity=severity,
+                sent_email=notification_result.get("email_sent", False),
+                sent_slack=notification_result.get("slack_sent", False),
+            )
+            db.add(log)
+
+    db.commit()
+
+
 async def background_ping_loop():
     await asyncio.sleep(10)
     while True:
@@ -135,6 +260,7 @@ async def background_ping_loop():
                     )
                     db.add(history)
                 db.commit()
+                evaluate_alerts(db, list(zip(devices, results)))
             db.close()
         except Exception:
             pass
@@ -331,7 +457,22 @@ def get_devices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return get_visible_devices(db, current_user).all()
+    devices = get_visible_devices(db, current_user).all()
+    result = []
+    for d in devices:
+        result.append(DeviceResponse(
+            id=d.id,
+            name=d.name,
+            ip_address=d.ip_address,
+            status=d.status,
+            latency=d.latency,
+            owner_id=d.owner_id,
+            group_id=d.group_id,
+            group_name=d.group.name if d.group else None,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+        ))
+    return result
 
 
 @app.post("/api/devices", response_model=DeviceResponse)
@@ -349,11 +490,23 @@ def create_device(
         ip_address=device.ip_address,
         status="Offline",
         owner_id=current_user.id,
+        group_id=device.group_id,
     )
     db.add(new_device)
     db.commit()
     db.refresh(new_device)
-    return new_device
+    return DeviceResponse(
+        id=new_device.id,
+        name=new_device.name,
+        ip_address=new_device.ip_address,
+        status=new_device.status,
+        latency=new_device.latency,
+        owner_id=new_device.owner_id,
+        group_id=new_device.group_id,
+        group_name=new_device.group.name if new_device.group else None,
+        created_at=new_device.created_at,
+        updated_at=new_device.updated_at,
+    )
 
 
 @app.put("/api/devices/{device_id}", response_model=DeviceResponse)
@@ -377,11 +530,24 @@ def update_device(
         db_device.ip_address = device.ip_address
     if device.status is not None:
         db_device.status = device.status
+    if device.group_id is not None:
+        db_device.group_id = device.group_id
 
     db_device.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(db_device)
-    return db_device
+    return DeviceResponse(
+        id=db_device.id,
+        name=db_device.name,
+        ip_address=db_device.ip_address,
+        status=db_device.status,
+        latency=db_device.latency,
+        owner_id=db_device.owner_id,
+        group_id=db_device.group_id,
+        group_name=db_device.group.name if db_device.group else None,
+        created_at=db_device.created_at,
+        updated_at=db_device.updated_at,
+    )
 
 
 @app.delete("/api/devices/{device_id}")
@@ -412,6 +578,155 @@ def bulk_delete_devices(
     deleted = db.query(Device).filter(Device.id.in_(device_ids)).delete(synchronize_session=False)
     db.commit()
     return {"detail": f"{deleted} device(s) deleted"}
+
+
+@app.post("/api/devices/ping-group/{group_id}", response_model=list[DeviceResponse])
+def ping_group_devices(
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    devices = db.query(Device).filter(Device.group_id == group_id).all()
+    if not devices:
+        return []
+
+    ips = [d.ip_address for d in devices]
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        results = list(pool.map(ping_ip, ips))
+    now = datetime.now(timezone.utc)
+    for device, result in zip(devices, results):
+        device.status = result["status"]
+        device.latency = result["latency"]
+        device.updated_at = now
+        history = DeviceStatusHistory(
+            device_id=device.id,
+            status=result["status"],
+            latency=result["latency"],
+            checked_at=now,
+        )
+        db.add(history)
+    db.commit()
+    evaluate_alerts(db, list(zip(devices, results)))
+    for device in devices:
+        db.refresh(device)
+    return devices
+
+
+# ─── Device Group Routes ─────────────────────────────────────
+
+@app.get("/api/groups", response_model=list[DeviceGroupResponse])
+def list_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    groups = db.query(DeviceGroup).all()
+    result = []
+    for g in groups:
+        device_count = db.query(Device).filter(Device.group_id == g.id).count()
+        result.append(DeviceGroupResponse(
+            id=g.id,
+            name=g.name,
+            color=g.color,
+            device_count=device_count,
+            created_at=g.created_at,
+        ))
+    return result
+
+
+@app.post("/api/groups", response_model=DeviceGroupResponse)
+def create_group(
+    group: DeviceGroupCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("create_devices")),
+):
+    existing = db.query(DeviceGroup).filter(DeviceGroup.name == group.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Group name already exists")
+
+    new_group = DeviceGroup(name=group.name, color=group.color)
+    db.add(new_group)
+    db.commit()
+    db.refresh(new_group)
+    return DeviceGroupResponse(
+        id=new_group.id,
+        name=new_group.name,
+        color=new_group.color,
+        device_count=0,
+        created_at=new_group.created_at,
+    )
+
+
+@app.put("/api/groups/{group_id}", response_model=DeviceGroupResponse)
+def update_group(
+    group_id: int,
+    group: DeviceGroupUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("create_devices")),
+):
+    db_group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    if not db_group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    if group.name is not None:
+        existing = db.query(DeviceGroup).filter(
+            DeviceGroup.name == group.name,
+            DeviceGroup.id != group_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Group name already exists")
+        db_group.name = group.name
+
+    if group.color is not None:
+        db_group.color = group.color
+
+    db.commit()
+    db.refresh(db_group)
+    device_count = db.query(Device).filter(Device.group_id == group_id).count()
+    return DeviceGroupResponse(
+        id=db_group.id,
+        name=db_group.name,
+        color=db_group.color,
+        device_count=device_count,
+        created_at=db_group.created_at,
+    )
+
+
+@app.delete("/api/groups/{group_id}")
+def delete_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("create_devices")),
+):
+    db_group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    if not db_group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    db.query(Device).filter(Device.group_id == group_id).update({"group_id": None})
+    db.delete(db_group)
+    db.commit()
+    return {"detail": "Group deleted"}
+
+
+@app.post("/api/groups/{group_id}/assign-devices")
+def assign_devices_to_group(
+    group_id: int,
+    device_ids: list[int],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("create_devices")),
+):
+    group = db.query(DeviceGroup).filter(DeviceGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    db.query(Device).filter(Device.id.in_(device_ids)).update(
+        {"group_id": group_id}, synchronize_session=False
+    )
+    db.commit()
+    return {"detail": f"{len(device_ids)} device(s) assigned to group"}
 
 
 # ─── Ping Route ────────────────────────────────────────────────
@@ -495,6 +810,7 @@ def ping_all_devices(
         )
         db.add(history)
     db.commit()
+    evaluate_alerts(db, list(zip(devices, results)))
     for device in devices:
         db.refresh(device)
     return devices
@@ -795,6 +1111,294 @@ def scan_ports(
         total_scanned=len(ports),
         scan_time=elapsed,
     )
+
+
+# ─── Alert Rules ──────────────────────────────────────────────
+
+@app.get("/api/alerts/rules", response_model=list[AlertRuleResponse])
+def list_alert_rules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rules = db.query(AlertRule).order_by(AlertRule.created_at.desc()).all()
+    result = []
+    for r in rules:
+        target_name = None
+        if r.target_type == "device" and r.target_id:
+            device = db.query(Device).filter(Device.id == r.target_id).first()
+            target_name = device.name if device else None
+        elif r.target_type == "group" and r.target_id:
+            group = db.query(DeviceGroup).filter(DeviceGroup.id == r.target_id).first()
+            target_name = group.name if group else None
+        result.append(AlertRuleResponse(
+            id=r.id,
+            name=r.name,
+            enabled=r.enabled,
+            rule_type=r.rule_type,
+            target_type=r.target_type,
+            target_id=r.target_id,
+            target_name=target_name,
+            threshold_value=r.threshold_value,
+            cooldown_minutes=r.cooldown_minutes,
+            notify_email=r.notify_email,
+            notify_slack=r.notify_slack,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        ))
+    return result
+
+
+@app.post("/api/alerts/rules", response_model=AlertRuleResponse)
+def create_alert_rule(
+    rule: AlertRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    new_rule = AlertRule(
+        name=rule.name,
+        rule_type=rule.rule_type,
+        target_type=rule.target_type,
+        target_id=rule.target_id,
+        threshold_value=rule.threshold_value,
+        cooldown_minutes=rule.cooldown_minutes,
+        notify_email=rule.notify_email,
+        notify_slack=rule.notify_slack,
+        enabled=rule.enabled,
+    )
+    db.add(new_rule)
+    db.commit()
+    db.refresh(new_rule)
+
+    target_name = None
+    if new_rule.target_type == "device" and new_rule.target_id:
+        device = db.query(Device).filter(Device.id == new_rule.target_id).first()
+        target_name = device.name if device else None
+    elif new_rule.target_type == "group" and new_rule.target_id:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == new_rule.target_id).first()
+        target_name = group.name if group else None
+
+    return AlertRuleResponse(
+        id=new_rule.id,
+        name=new_rule.name,
+        enabled=new_rule.enabled,
+        rule_type=new_rule.rule_type,
+        target_type=new_rule.target_type,
+        target_id=new_rule.target_id,
+        target_name=target_name,
+        threshold_value=new_rule.threshold_value,
+        cooldown_minutes=new_rule.cooldown_minutes,
+        notify_email=new_rule.notify_email,
+        notify_slack=new_rule.notify_slack,
+        created_at=new_rule.created_at,
+        updated_at=new_rule.updated_at,
+    )
+
+
+@app.put("/api/alerts/rules/{rule_id}", response_model=AlertRuleResponse)
+def update_alert_rule(
+    rule_id: int,
+    rule: AlertRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    db_rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+
+    if rule.name is not None:
+        db_rule.name = rule.name
+    if rule.rule_type is not None:
+        db_rule.rule_type = rule.rule_type
+    if rule.target_type is not None:
+        db_rule.target_type = rule.target_type
+    if rule.target_id is not None:
+        db_rule.target_id = rule.target_id
+    if rule.threshold_value is not None:
+        db_rule.threshold_value = rule.threshold_value
+    if rule.cooldown_minutes is not None:
+        db_rule.cooldown_minutes = rule.cooldown_minutes
+    if rule.notify_email is not None:
+        db_rule.notify_email = rule.notify_email
+    if rule.notify_slack is not None:
+        db_rule.notify_slack = rule.notify_slack
+    if rule.enabled is not None:
+        db_rule.enabled = rule.enabled
+
+    db_rule.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(db_rule)
+
+    target_name = None
+    if db_rule.target_type == "device" and db_rule.target_id:
+        device = db.query(Device).filter(Device.id == db_rule.target_id).first()
+        target_name = device.name if device else None
+    elif db_rule.target_type == "group" and db_rule.target_id:
+        group = db.query(DeviceGroup).filter(DeviceGroup.id == db_rule.target_id).first()
+        target_name = group.name if group else None
+
+    return AlertRuleResponse(
+        id=db_rule.id,
+        name=db_rule.name,
+        enabled=db_rule.enabled,
+        rule_type=db_rule.rule_type,
+        target_type=db_rule.target_type,
+        target_id=db_rule.target_id,
+        target_name=target_name,
+        threshold_value=db_rule.threshold_value,
+        cooldown_minutes=db_rule.cooldown_minutes,
+        notify_email=db_rule.notify_email,
+        notify_slack=db_rule.notify_slack,
+        created_at=db_rule.created_at,
+        updated_at=db_rule.updated_at,
+    )
+
+
+@app.delete("/api/alerts/rules/{rule_id}")
+def delete_alert_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    db_rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+    db.delete(db_rule)
+    db.commit()
+    return {"detail": "Alert rule deleted"}
+
+
+@app.post("/api/alerts/rules/{rule_id}/toggle")
+def toggle_alert_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    db_rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+    db_rule.enabled = not db_rule.enabled
+    db_rule.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"enabled": db_rule.enabled}
+
+
+# ─── Alert Logs ───────────────────────────────────────────────
+
+@app.get("/api/alerts/logs", response_model=list[AlertLogResponse])
+def list_alert_logs(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    logs = (
+        db.query(AlertLog)
+        .order_by(AlertLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for log in logs:
+        device_name = None
+        device_ip = None
+        if log.device_id:
+            device = db.query(Device).filter(Device.id == log.device_id).first()
+            if device:
+                device_name = device.name
+                device_ip = device.ip_address
+        rule = db.query(AlertRule).filter(AlertRule.id == log.rule_id).first()
+        result.append(AlertLogResponse(
+            id=log.id,
+            rule_id=log.rule_id,
+            rule_name=rule.name if rule else None,
+            device_id=log.device_id,
+            device_name=device_name,
+            device_ip=device_ip,
+            message=log.message,
+            severity=log.severity,
+            sent_email=log.sent_email,
+            sent_slack=log.sent_slack,
+            created_at=log.created_at,
+        ))
+    return result
+
+
+@app.delete("/api/alerts/logs")
+def clear_alert_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    db.query(AlertLog).delete()
+    db.commit()
+    return {"detail": "Alert logs cleared"}
+
+
+# ─── Notification Config ──────────────────────────────────────
+
+@app.get("/api/alerts/config", response_model=AlertConfigResponse)
+def get_alert_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    from notifications import get_email_config, get_slack_config
+    email_cfg = get_email_config()
+    slack_cfg = get_slack_config()
+
+    db_recipients = get_alert_config_value(db, "email_recipients", "")
+    db_slack_url = get_alert_config_value(db, "slack_webhook_url", "")
+
+    env_recipients = email_cfg["alert_recipients"]
+    env_slack_url = slack_cfg["webhook_url"]
+
+    final_recipients = db_recipients or env_recipients
+    final_slack_url = db_slack_url or env_slack_url
+
+    return AlertConfigResponse(
+        email_recipients=final_recipients,
+        slack_webhook_url=final_slack_url,
+        smtp_configured=bool(email_cfg["smtp_host"] and email_cfg["smtp_user"]),
+        slack_configured=bool(final_slack_url),
+    )
+
+
+@app.put("/api/alerts/config")
+def update_alert_config(
+    config: AlertConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    if config.email_recipients is not None:
+        set_alert_config_value(db, "email_recipients", config.email_recipients)
+    if config.slack_webhook_url is not None:
+        set_alert_config_value(db, "slack_webhook_url", config.slack_webhook_url)
+    return {"detail": "Config updated"}
+
+
+@app.post("/api/alerts/test")
+def test_alert_notification(
+    req: NotificationTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("manage_users")),
+):
+    from notifications import get_slack_config
+
+    if req.channel == "email":
+        recipients = [r.strip() for r in get_alert_config_value(db, "email_recipients", "").split(",") if r.strip()]
+        if req.email:
+            recipients = [req.email]
+        if not recipients:
+            return {"success": False, "message": "No email recipients configured. Add recipients in Alert Settings."}
+        result = test_notification(req.channel, recipients[0])
+        return result
+
+    elif req.channel == "slack":
+        db_url = get_alert_config_value(db, "slack_webhook_url", "")
+        env_url = get_slack_config()["webhook_url"]
+        if not db_url and not env_url:
+            return {"success": False, "message": "No Slack webhook URL configured. Add it in Alert Settings."}
+        result = test_notification(req.channel, req.email, slack_webhook_url=db_url or env_url)
+        return result
+
+    return {"success": False, "message": f"Unknown channel: {req.channel}"}
 
 
 if __name__ == "__main__":

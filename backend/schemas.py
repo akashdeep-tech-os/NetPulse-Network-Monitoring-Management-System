@@ -64,12 +64,14 @@ class TokenWithPermissions(BaseModel):
 class DeviceCreate(BaseModel):
     name: str
     ip_address: str
+    group_id: Optional[int] = None
 
 
 class DeviceUpdate(BaseModel):
     name: Optional[str] = None
     ip_address: Optional[str] = None
     status: Optional[str] = None
+    group_id: Optional[int] = None
 
 
 class DeviceResponse(BaseModel):
@@ -79,6 +81,8 @@ class DeviceResponse(BaseModel):
     status: str
     latency: Optional[float] = None
     owner_id: int
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -86,6 +90,34 @@ class DeviceResponse(BaseModel):
         from_attributes = True
 
     @field_serializer("created_at", "updated_at")
+    def serialize_utc(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
+
+
+# Device Group Schemas
+class DeviceGroupCreate(BaseModel):
+    name: str
+    color: Optional[str] = "#3B82F6"
+
+
+class DeviceGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+
+
+class DeviceGroupResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    device_count: int = 0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @field_serializer("created_at")
     def serialize_utc(self, dt: datetime, _info):
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -114,3 +146,93 @@ class PortScanResponse(BaseModel):
     open_ports: list[PortResult]
     total_scanned: int
     scan_time: str
+
+
+# Alert Schemas
+class AlertRuleCreate(BaseModel):
+    name: str
+    rule_type: str
+    target_type: str = "all"
+    target_id: Optional[int] = None
+    threshold_value: Optional[float] = None
+    cooldown_minutes: int = 5
+    notify_email: bool = False
+    notify_slack: bool = False
+    enabled: bool = True
+
+
+class AlertRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    rule_type: Optional[str] = None
+    target_type: Optional[str] = None
+    target_id: Optional[int] = None
+    threshold_value: Optional[float] = None
+    cooldown_minutes: Optional[int] = None
+    notify_email: Optional[bool] = None
+    notify_slack: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+
+class AlertRuleResponse(BaseModel):
+    id: int
+    name: str
+    enabled: bool
+    rule_type: str
+    target_type: str
+    target_id: Optional[int] = None
+    target_name: Optional[str] = None
+    threshold_value: Optional[float] = None
+    cooldown_minutes: int
+    notify_email: bool
+    notify_slack: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_utc(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
+
+
+class AlertLogResponse(BaseModel):
+    id: int
+    rule_id: int
+    rule_name: Optional[str] = None
+    device_id: Optional[int] = None
+    device_name: Optional[str] = None
+    device_ip: Optional[str] = None
+    message: str
+    severity: str
+    sent_email: bool
+    sent_slack: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @field_serializer("created_at")
+    def serialize_utc(self, dt: datetime, _info):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
+
+
+class NotificationTestRequest(BaseModel):
+    channel: str
+    email: Optional[str] = None
+
+
+class AlertConfigUpdate(BaseModel):
+    email_recipients: Optional[str] = None
+    slack_webhook_url: Optional[str] = None
+
+
+class AlertConfigResponse(BaseModel):
+    email_recipients: str
+    slack_webhook_url: str
+    smtp_configured: bool
+    slack_configured: bool
