@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -102,16 +104,16 @@ user_role = db.query(Role).filter(Role.name == "user").first()
 
 admin = db.query(User).filter(User.is_admin == True).first()
 if not admin:
-    akashdeep = db.query(User).filter(User.username == "akashdeep").first()
-    if akashdeep:
-        akashdeep.is_admin = True
-        akashdeep.role_id = admin_role.id
+    admin_existing = db.query(User).filter(User.username == "Surakshitcity").first()
+    if admin_existing:
+        admin_existing.is_admin = True
+        admin_existing.role_id = admin_role.id
         db.commit()
     else:
         admin_user = User(
-            username="akashdeep",
-            email="akashdeep@localhost",
-            hashed_password=hash_password("Admin@123"),
+            username="Surakshitcity",
+            email="Surakshitcity@gmail.com",
+            hashed_password=hash_password("Surakshitcity@1237"),
             is_admin=True,
             role_id=admin_role.id,
         )
@@ -275,7 +277,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ping Monitor API", version="1.0.0", lifespan=lifespan)
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -1399,6 +1401,21 @@ def test_alert_notification(
         return result
 
     return {"success": False, "message": f"Unknown channel: {req.channel}"}
+
+
+# ─── Serve Frontend ────────────────────────────────────────────
+
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = os.path.join(FRONTEND_DIR, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
 if __name__ == "__main__":

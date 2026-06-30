@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Lock, User } from "lucide-react";
+import { Lock, User, Shield } from "lucide-react";
 import { login } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
 import { useTheme } from "../routes/ThemeContext.jsx";
@@ -42,13 +42,13 @@ const Login = () => {
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
             theme === "dark" ? "bg-blue-900/30" : "bg-blue-100"
           }`}>
-            <span className={`text-xl font-bold ${
+            <Shield size={28} className={`${
               theme === "dark" ? "text-blue-400" : "text-blue-600"
-            }`}>SC</span>
+            }`} />
           </div>
           <h1 className={`text-xl font-bold ${
             theme === "dark" ? "text-white" : "text-gray-900"
-          }`}>SURAKSHIT CITY</h1>
+          }`}>Surakshit</h1>
           <p className={`text-sm mt-1 ${
             theme === "dark" ? "text-gray-400" : "text-gray-500"
           }`}>Ping Monitor</p>

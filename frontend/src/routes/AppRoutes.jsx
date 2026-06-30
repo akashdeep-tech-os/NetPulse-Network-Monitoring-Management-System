@@ -2,11 +2,11 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "../pages/Login";
 import Dashboard from "../pages/Dashboard";
 import PortScanner from "../pages/PortScanner";
-import UserManagement from "../pages/UserManagement";
 import Reports from "../pages/Reports";
 import DeviceGroups from "../pages/DeviceGroups";
 import AlertSettings from "../pages/AlertSettings";
 import AlertHistory from "../pages/AlertHistory";
+import Settings from "../pages/Settings";
 import { useAuth } from "./AuthContext.jsx";
 
 function ProtectedRoute({ children }) {
@@ -63,9 +63,16 @@ export default function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <PermissionRoute permission="create_users">
-              <UserManagement />
-            </PermissionRoute>
+            <Navigate to="/settings" replace />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />

@@ -13,8 +13,6 @@ const DashboardLayout = ({
   onAdd,
   searchQuery,
   onSearchChange,
-  onImport,
-  onExport,
   onPingAll,
 }) => {
   const { theme } = useTheme();
@@ -42,8 +40,6 @@ const DashboardLayout = ({
           onAdd={onAdd}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
-          onImport={onImport}
-          onExport={onExport}
           onPingAll={onPingAll}
           onMenuToggle={() => setIsMobileOpen(!isMobileOpen)}
         />

@@ -9,7 +9,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Mail,
-  MessageSquare,
+  Smartphone,
   Send,
   RefreshCw,
   AlertTriangle,
@@ -40,7 +40,7 @@ const RULE_TYPES = [
 const TARGET_TYPES = [
   { value: "all", label: "All Devices" },
   { value: "group", label: "Device Group" },
-  { value: "device", label: "Specific Device" },
+  { value: "device", label: "Add Specific IP" },
 ];
 
 const AlertSettings = () => {
@@ -58,7 +58,7 @@ const AlertSettings = () => {
   const [testResult, setTestResult] = useState(null);
   const [testingChannel, setTestingChannel] = useState(null);
   const [emailRecipients, setEmailRecipients] = useState("");
-  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [formData, setFormData] = useState({
@@ -66,10 +66,11 @@ const AlertSettings = () => {
     rule_type: "device_offline",
     target_type: "all",
     target_id: null,
+    target_ip: "",
     threshold_value: 100,
     cooldown_minutes: 5,
     notify_email: true,
-    notify_slack: false,
+    notify_mobile: false,
     enabled: true,
   });
 
@@ -86,7 +87,7 @@ const AlertSettings = () => {
       if (configRes.status === "fulfilled") {
         setConfig(configRes.value.data);
         setEmailRecipients(configRes.value.data.email_recipients || "");
-        setSlackWebhookUrl(configRes.value.data.slack_webhook_url || "");
+        setMobileNumber(configRes.value.data.mobile_number || "");
       }
       if (devicesRes.status === "fulfilled") setDevices(devicesRes.value.data);
       if (groupsRes.status === "fulfilled") setGroups(groupsRes.value.data);
@@ -159,7 +160,7 @@ const AlertSettings = () => {
     try {
       await updateAlertConfig({
         email_recipients: emailRecipients,
-        slack_webhook_url: slackWebhookUrl,
+        mobile_number: mobileNumber,
       });
       setConfigSaved(true);
       fetchData();
@@ -177,10 +178,11 @@ const AlertSettings = () => {
       rule_type: "device_offline",
       target_type: "all",
       target_id: null,
+      target_ip: "",
       threshold_value: 100,
       cooldown_minutes: 5,
       notify_email: true,
-      notify_slack: false,
+      notify_mobile: false,
       enabled: true,
     });
   };
@@ -192,10 +194,11 @@ const AlertSettings = () => {
       rule_type: rule.rule_type,
       target_type: rule.target_type,
       target_id: rule.target_id,
+      target_ip: rule.target_ip || "",
       threshold_value: rule.threshold_value || 100,
       cooldown_minutes: rule.cooldown_minutes,
       notify_email: rule.notify_email,
-      notify_slack: rule.notify_slack,
+      notify_mobile: rule.notify_mobile,
       enabled: rule.enabled,
     });
     setShowModal(true);
@@ -233,7 +236,7 @@ const AlertSettings = () => {
             </div>
             <div>
               <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Alert Settings
+                Add Alert
               </h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Configure notifications and alert rules
@@ -311,16 +314,16 @@ const AlertSettings = () => {
               </button>
             </div>
 
-            {/* Slack Config */}
+            {/* Mobile Config */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <MessageSquare size={16} className="text-purple-500" />
+                <Smartphone size={16} className="text-green-500" />
                 <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Slack Notifications
+                  Mobile Notifications
                 </h4>
-                {config?.slack_configured ? (
+                {config?.mobile_configured ? (
                   <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-medium rounded-full">
-                    Webhook Set
+                    SMS Ready
                   </span>
                 ) : (
                   <span className="px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-[10px] font-medium rounded-full">
@@ -330,25 +333,25 @@ const AlertSettings = () => {
               </div>
               <div>
                 <label className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  Slack Webhook URL
+                  Phone Number
                 </label>
                 <input
-                  type="text"
-                  value={slackWebhookUrl}
-                  onChange={(e) => setSlackWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/T.../B.../..."
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400 font-mono text-xs"
+                  type="tel"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400"
                 />
                 <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                  Create an Incoming Webhook in Slack settings
+                  Alerts will be sent via SMS to this number
                 </p>
               </div>
               <button
-                onClick={() => handleTest("slack")}
-                disabled={testingChannel === "slack" || !slackWebhookUrl.trim()}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded-lg transition disabled:opacity-50"
+                onClick={() => handleTest("mobile")}
+                disabled={testingChannel === "mobile" || !mobileNumber.trim()}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 rounded-lg transition disabled:opacity-50"
               >
-                {testingChannel === "slack" ? (
+                {testingChannel === "mobile" ? (
                   <RefreshCw size={12} className="animate-spin" />
                 ) : (
                   <Send size={12} />
@@ -455,10 +458,10 @@ const AlertSettings = () => {
                           Email
                         </span>
                       )}
-                      {rule.notify_slack && (
+                      {rule.notify_mobile && (
                         <span className="flex items-center gap-1">
-                          <MessageSquare size={10} />
-                          Slack
+                          <Smartphone size={10} />
+                          Mobile
                         </span>
                       )}
                     </div>
@@ -599,22 +602,20 @@ const AlertSettings = () => {
                 {formData.target_type === "device" && (
                   <div>
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                      Select Device
+                      Add Specific IP
                     </label>
-                    <select
-                      value={formData.target_id || ""}
+                    <input
+                      type="text"
+                      value={formData.target_ip || ""}
                       onChange={(e) =>
-                        setFormData({ ...formData, target_id: parseInt(e.target.value) || null })
+                        setFormData({ ...formData, target_ip: e.target.value })
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white"
-                    >
-                      <option value="">Select a device</option>
-                      {devices.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name} ({d.ip_address})
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="e.g., 192.168.1.100"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400 font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                      Enter the IP address of the specific device
+                    </p>
                   </div>
                 )}
 
@@ -658,14 +659,14 @@ const AlertSettings = () => {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={formData.notify_slack}
+                        checked={formData.notify_mobile}
                         onChange={(e) =>
-                          setFormData({ ...formData, notify_slack: e.target.checked })
+                          setFormData({ ...formData, notify_mobile: e.target.checked })
                         }
                         className="w-4 h-4 rounded border-gray-300 text-blue-600"
                       />
-                      <MessageSquare size={14} className="text-gray-500" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Slack</span>
+                      <Smartphone size={14} className="text-gray-500" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Mobile</span>
                     </label>
                   </div>
                 </div>

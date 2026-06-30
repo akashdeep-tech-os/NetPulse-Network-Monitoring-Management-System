@@ -4,8 +4,6 @@ import {
   UserCircle,
   Search,
   Plus,
-  Upload,
-  Download,
   RefreshCw,
   LogOut,
   Menu,
@@ -21,8 +19,6 @@ const Header = ({
   onAdd,
   searchQuery,
   onSearchChange,
-  onImport,
-  onExport,
   onPingAll,
   onMenuToggle,
 }) => {
@@ -80,27 +76,6 @@ const Header = ({
         >
           <RefreshCw size={15} /> Ping All
         </button>
-
-        {hasPermission("import_devices") && (
-          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 text-sm rounded-lg transition cursor-pointer">
-            <Upload size={15} /> Import
-            <input
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={onImport}
-              className="hidden"
-            />
-          </label>
-        )}
-
-        {hasPermission("export_devices") && (
-          <button
-            onClick={onExport}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 text-sm rounded-lg transition"
-          >
-            <Download size={15} /> Export
-          </button>
-        )}
 
         <div className="h-6 w-px bg-gray-200 dark:bg-slate-600" />
       </div>
@@ -174,22 +149,6 @@ const Header = ({
                   <RefreshCw size={16} className="text-gray-500" />
                   Ping All
                 </button>
-                {hasPermission("import_devices") && (
-                  <label className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-3 cursor-pointer text-gray-700 dark:text-gray-300">
-                    <Upload size={16} className="text-gray-500" />
-                    Import
-                    <input type="file" accept=".csv,.xlsx,.xls" onChange={onImport} className="hidden" />
-                  </label>
-                )}
-                {hasPermission("export_devices") && (
-                  <button
-                    onClick={() => { onExport(); setShowUserMenu(false); }}
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-3 text-gray-700 dark:text-gray-300"
-                  >
-                    <Download size={16} className="text-gray-500" />
-                    Export
-                  </button>
-                )}
                 <hr className="my-1 border-gray-100 dark:border-slate-700" />
                 <button
                   onClick={() => { logout(); setShowUserMenu(false); }}

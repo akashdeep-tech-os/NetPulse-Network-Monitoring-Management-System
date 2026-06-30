@@ -148,7 +148,7 @@ const DeviceGroups = () => {
             </div>
             <div>
               <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Device Groups
+                Add IP Groups
               </h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Organize devices by location, type, or department
