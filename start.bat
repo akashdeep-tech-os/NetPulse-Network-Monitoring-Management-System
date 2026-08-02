@@ -13,6 +13,17 @@ echo.
 echo Press Ctrl+C to stop the server.
 echo ========================================
 echo.
+set "VENV_PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%VENV_PY%" (
+    echo [ERROR] Virtual environment not found: %VENV_PY%
+    echo.
+    echo To fix, run:
+    echo   python -m venv .venv
+    echo   .venv\Scripts\pip install -r backend\requirements.txt
+    pause
+    exit /b 1
+)
+
 cd /d "%~dp0backend"
-python main.py
+"%VENV_PY%" main.py
 pause

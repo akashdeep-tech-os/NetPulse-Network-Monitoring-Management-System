@@ -57,16 +57,6 @@ const Sidebar = ({
       icon: <BarChart3 size={20} />,
       path: "/reports",
     },
-    ...(hasPermission("create_devices") || hasPermission("manage_users")
-      ? [
-          {
-            name: "groups",
-            label: "Add IP Groups",
-            icon: <FolderOpen size={20} />,
-            path: "/groups",
-          },
-        ]
-      : []),
     ...(hasPermission("port_scanning")
       ? [
           {
@@ -74,6 +64,16 @@ const Sidebar = ({
             label: "Port Scanner",
             icon: <ScanSearch size={20} />,
             path: "/scanner",
+          },
+        ]
+      : []),
+    ...(hasPermission("create_devices") || hasPermission("manage_users")
+      ? [
+          {
+            name: "groups",
+            label: "Add IP Groups",
+            icon: <FolderOpen size={20} />,
+            path: "/groups",
           },
         ]
       : []),

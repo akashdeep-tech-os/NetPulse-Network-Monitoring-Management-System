@@ -6,11 +6,7 @@ import { useTheme } from "../routes/ThemeContext.jsx";
 const DashboardLayout = ({
   children,
   offlineCount = 0,
-  name,
-  ip,
-  onNameChange,
-  onIpChange,
-  onAdd,
+  pinging = false,
   searchQuery,
   onSearchChange,
   onPingAll,
@@ -33,11 +29,7 @@ const DashboardLayout = ({
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header
           offlineCount={offlineCount}
-          name={name}
-          ip={ip}
-          onNameChange={onNameChange}
-          onIpChange={onIpChange}
-          onAdd={onAdd}
+          pinging={pinging}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
           onPingAll={onPingAll}

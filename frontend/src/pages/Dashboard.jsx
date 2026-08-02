@@ -5,10 +5,8 @@ import EditModal from "../components/EditModal";
 import StatsCards from "../components/StatsCards";
 import {
   getDevices,
-  createDevice,
   updateDevice,
   deleteDevice,
-  bulkDeleteDevices,
   pingAllDevices,
   pingGroupDevices,
   getGroups,
@@ -23,9 +21,7 @@ const Dashboard = () => {
   const [selectedGroup, setSelectedGroup] = useState("");
   const [rowHeight, setRowHeight] = useState(50);
   const [editModal, setEditModal] = useState({ device: null, field: null });
-  const [headerName, setHeaderName] = useState("");
-  const [headerIp, setHeaderIp] = useState("");
-  const [headerGroupId, setHeaderGroupId] = useState("");
+  const [pinging, setPinging] = useState(false);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -75,29 +71,6 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleHeaderAdd = async () => {
-    if (!headerName.trim() || !headerIp.trim()) {
-      alert("Please enter Device Name and IP Address");
-      return;
-    }
-    try {
-      const payload = {
-        name: headerName.trim(),
-        ip_address: headerIp.trim(),
-      };
-      if (headerGroupId) {
-        payload.group_id = parseInt(headerGroupId);
-      }
-      await createDevice(payload);
-      setHeaderName("");
-      setHeaderIp("");
-      setHeaderGroupId("");
-      fetchDevices();
-    } catch (err) {
-      alert(err.response?.data?.detail || "Failed to add device");
-    }
-  };
-
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this device?")) {
       try {
@@ -106,15 +79,6 @@ const Dashboard = () => {
       } catch {
         alert("Failed to delete device");
       }
-    }
-  };
-
-  const handleBulkDelete = async (ids) => {
-    try {
-      await bulkDeleteDevices(ids);
-      fetchDevices();
-    } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete devices");
     }
   };
 
@@ -144,21 +108,27 @@ const Dashboard = () => {
   };
 
   const handlePingAll = async () => {
+    setPinging(true);
     try {
       await pingAllDevices();
       fetchDevices();
     } catch {
       alert("Failed to ping devices");
+    } finally {
+      setPinging(false);
     }
   };
 
   const handlePingGroup = async (groupId) => {
     if (!groupId) return handlePingAll();
+    setPinging(true);
     try {
       await pingGroupDevices(groupId);
       fetchDevices();
     } catch {
       alert("Failed to ping group");
+    } finally {
+      setPinging(false);
     }
   };
 
@@ -178,11 +148,7 @@ const Dashboard = () => {
   return (
     <DashboardLayout
       offlineCount={offline}
-      name={headerName}
-      ip={headerIp}
-      onNameChange={(e) => setHeaderName(e.target.value)}
-      onIpChange={(e) => setHeaderIp(e.target.value)}
-      onAdd={handleHeaderAdd}
+      pinging={pinging}
       searchQuery={searchQuery}
       onSearchChange={(e) => setSearchQuery(e.target.value)}
       onPingAll={() => handlePingGroup(selectedGroup)}
@@ -218,7 +184,6 @@ const Dashboard = () => {
         devices={filtered}
         rowHeight={rowHeight}
         onDelete={handleDelete}
-        onBulkDelete={handleBulkDelete}
         onEdit={(device, field) => setEditModal({ device, field })}
         onCopyIP={handleCopyIP}
         isAdmin={isAdmin}
