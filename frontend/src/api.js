@@ -39,6 +39,7 @@ export const exportDevices = () => api.get("/devices/export");
 export const scanPorts = (data) => api.post("/scan", data);
 
 export const createUser = (data) => api.post("/auth/create-user", data);
+export const changePassword = (data) => api.post("/auth/change-password", data);
 export const getUsers = () => api.get("/auth/users");
 export const updateUserRole = (userId, roleId) => api.put(`/auth/users/${userId}/role`, { role_id: roleId });
 export const deleteUser = (userId) => api.delete(`/auth/users/${userId}`);

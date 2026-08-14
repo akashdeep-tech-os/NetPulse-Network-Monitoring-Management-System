@@ -1,27 +1,44 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
 import subprocess
 import platform
 import socket
 import os
+import sys
 import asyncio
+import secrets
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
-load_dotenv()
+# ─── Single instance guard ─────────────────────────────────────
+_lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    _lock_socket.bind(("127.0.0.1", 47583))
+    _lock_socket.listen(1)
+except OSError:
+    print("Ping Monitor is already running.")
+    if getattr(sys, "frozen", False):
+        input("Press Enter to exit...")
+    sys.exit(0)
 
-from database import engine, get_db, Base
+load_dotenv()
+if getattr(sys, "frozen", False):
+    load_dotenv(os.path.join(os.path.dirname(sys.executable), ".env"))
+
+from database import engine, get_db, Base, DATA_DIR
 from models import User, Device, Role, Permission, DeviceStatusHistory, DeviceGroup, AlertRule, AlertLog, AlertConfig
 from schemas import (
     UserResponse, Token, TokenWithPermissions,
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceImport,
-    AdminUserCreate, UserRoleUpdate, PortScanRequest, PortScanResponse, PortResult,
+    AdminUserCreate, UserRoleUpdate, ChangePasswordRequest, PortScanRequest, PortScanResponse, PortResult,
     RoleResponse, PermissionResponse,
     DeviceGroupCreate, DeviceGroupUpdate, DeviceGroupResponse,
     AlertRuleCreate, AlertRuleUpdate, AlertRuleResponse, AlertLogResponse, NotificationTestRequest,
@@ -104,21 +121,59 @@ user_role = db.query(Role).filter(Role.name == "user").first()
 
 admin = db.query(User).filter(User.is_admin == True).first()
 if not admin:
-    admin_existing = db.query(User).filter(User.username == "Surakshitcity").first()
+    admin_username = os.getenv("ADMIN_USERNAME", "Surakshitcity")
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@localhost.local")
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+
+    admin_existing = db.query(User).filter(User.username == admin_username).first()
     if admin_existing:
         admin_existing.is_admin = True
         admin_existing.role_id = admin_role.id
         db.commit()
     else:
+        generated_password = False
+        if not admin_password:
+            admin_password = secrets.token_urlsafe(12)
+            generated_password = True
         admin_user = User(
-            username="Surakshitcity",
-            email="Surakshitcity@gmail.com",
-            hashed_password=hash_password("Surakshitcity@1237"),
+            username=admin_username,
+            email=admin_email,
+            hashed_password=hash_password(admin_password),
             is_admin=True,
             role_id=admin_role.id,
         )
         db.add(admin_user)
         db.commit()
+
+        creds_file = os.path.join(DATA_DIR, "admin_credentials.txt")
+        try:
+            with open(creds_file, "w") as f:
+                f.write(f"Ping Monitor - initial administrator account\n")
+                f.write(f"Username: {admin_username}\n")
+                f.write(f"Password: {admin_password}\n")
+                f.write("Change this password after first login, then delete this file.\n")
+        except Exception:
+            pass
+
+        sep = "=" * 60
+        print(f"\n{sep}")
+        print("  NO ADMINISTRATOR ACCOUNT FOUND - CREATED ONE")
+        print("  Username: {}".format(admin_username))
+        if generated_password:
+            print("  Password: {}  (auto-generated)".format(admin_password))
+            print("  Saved to: {}".format(creds_file))
+        else:
+            print("  Password: (set via ADMIN_PASSWORD env variable)")
+        print("  IMPORTANT: Change this password after your first login.")
+        print(f"{sep}\n")
+    db.close()
+
+# Warn if the legacy hardcoded default password is still in use
+existing_admin = db.query(User).filter(User.is_admin == True).first()
+if existing_admin and verify_password("Surakshitcity@1237", existing_admin.hashed_password):
+    print("\nWARNING: The default administrator password is still in use.")
+    print("This is a serious security risk. Change it immediately.")
+    print("(Default password detected: Surakshitcity@1237)\n")
 
 existing_users = db.query(User).filter(User.role_id == None).all()
 for user in existing_users:
@@ -143,6 +198,58 @@ def set_alert_config_value(db, key, value):
         config = AlertConfig(key=key, value=value)
         db.add(config)
     db.commit()
+
+
+# ─── Login rate limiting ──────────────────────────────────────
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_MINUTES = int(os.getenv("LOGIN_WINDOW_MINUTES", "15"))
+_login_attempts: dict[str, list] = defaultdict(list)
+
+
+def _prune_login_attempts(key: str):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=LOGIN_WINDOW_MINUTES)
+    _login_attempts[key] = [t for t in _login_attempts[key] if t > cutoff]
+
+
+def _is_login_limited(request: Request, username: str) -> bool:
+    client_ip = request.client.host if request.client else "unknown"
+    for key in (f"ip:{client_ip}", f"user:{username.lower()}"):
+        _prune_login_attempts(key)
+        if len(_login_attempts[key]) >= LOGIN_MAX_ATTEMPTS:
+            return True
+    return False
+
+
+def _record_failed_login(request: Request, username: str):
+    client_ip = request.client.host if request.client else "unknown"
+    now = datetime.now(timezone.utc)
+    _login_attempts[f"ip:{client_ip}"].append(now)
+    _login_attempts[f"user:{username.lower()}"].append(now)
+
+
+def _clear_failed_logins(username: str):
+    _login_attempts.pop(f"user:{username.lower()}", None)
+
+
+def _rate_limit_exception():
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=f"Too many failed login attempts. Try again in {LOGIN_WINDOW_MINUTES} minutes.",
+        headers={"Retry-After": str(LOGIN_WINDOW_MINUTES * 60)},
+    )
+
+
+# ─── Security headers middleware ──────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if not getattr(request.state, "skip_cache", False):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def evaluate_alerts(db, device_results: list[tuple]):
@@ -277,7 +384,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ping Monitor API", version="1.0.0", lifespan=lifespan)
 
-cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+cors_origins = [o.strip() for o in os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+).split(",") if o.strip()]
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -290,14 +401,23 @@ app.add_middleware(
 # ─── Auth Routes ───────────────────────────────────────────────
 
 @app.post("/api/auth/login", response_model=TokenWithPermissions)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    if _is_login_limited(request, form_data.username):
+        raise _rate_limit_exception()
+
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
+        _record_failed_login(request, form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _clear_failed_logins(form_data.username)
     access_token = create_access_token(data={"sub": str(user.id)})
     permissions = get_user_permissions(user)
     return {
@@ -306,6 +426,23 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "permissions": permissions,
         "is_admin": user.is_admin,
     }
+
+
+@app.post("/api/auth/change-password")
+def change_password(
+    data: ChangePasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(data.current_password, current_user.hashed_password):
+        _record_failed_login(request, current_user.username)
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    current_user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    _clear_failed_logins(current_user.username)
+    return {"detail": "Password changed successfully"}
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
@@ -1405,21 +1542,55 @@ def test_alert_notification(
 
 # ─── Serve Frontend ────────────────────────────────────────────
 
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if getattr(sys, "frozen", False):
+    FRONTEND_DIR = os.path.join(getattr(sys, "_MEIPASS", "."), "frontend", "dist")
+else:
+    FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")
 
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
 
     @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
+    async def serve_spa(full_path: str, request: Request):
         file_path = os.path.join(FRONTEND_DIR, full_path)
         if os.path.isfile(file_path):
+            if full_path.startswith("assets/"):
+                request.state.skip_cache = True
             return FileResponse(file_path)
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 
 if __name__ == "__main__":
     import uvicorn
+    import webbrowser
+    import threading
+    import time
+
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+    preferred_port = int(os.getenv("PORT", "8000"))
+    port = preferred_port
+    if not os.getenv("PORT"):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind(("0.0.0.0", preferred_port))
+        except OSError:
+            probe.bind(("0.0.0.0", 0))
+            port = probe.getsockname()[1]
+        probe.close()
+
+    ssl_kwargs = {}
+    if os.getenv("SSL_CERTFILE") and os.getenv("SSL_KEYFILE"):
+        ssl_kwargs = {
+            "ssl_certfile": os.getenv("SSL_CERTFILE"),
+            "ssl_keyfile": os.getenv("SSL_KEYFILE"),
+        }
+
+    protocol = "https" if ssl_kwargs else "http"
+
+    def _open_browser():
+        time.sleep(2.0)
+        webbrowser.open(f"{protocol}://localhost:{port}")
+
+    print(f"Ping Monitor running at {protocol}://localhost:{port}")
+    threading.Thread(target=_open_browser, daemon=True).start()
+    uvicorn.run(app, host=host, port=port, **ssl_kwargs)

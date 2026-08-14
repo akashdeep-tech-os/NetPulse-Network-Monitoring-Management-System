@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, field_serializer, Field
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -40,12 +40,17 @@ class UserResponse(BaseModel):
 class AdminUserCreate(BaseModel):
     username: str
     email: str
-    password: str
+    password: str = Field(min_length=8, description="Password must be at least 8 characters")
     role_id: Optional[int] = None
 
 
 class UserRoleUpdate(BaseModel):
     role_id: int
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, description="Password must be at least 8 characters")
 
 
 class Token(BaseModel):

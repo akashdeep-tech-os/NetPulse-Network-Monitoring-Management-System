@@ -43,6 +43,7 @@ import {
   exportDevices,
   updateDevice,
   deleteDevice,
+  changePassword,
 } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
 
@@ -50,6 +51,7 @@ const TABS = [
   { id: "users", label: "User Management", icon: Users, color: "blue" },
   { id: "import-export", label: "Import / Export", icon: ArrowRightLeft, color: "emerald" },
   { id: "add-ip", label: "Add IP & Location", icon: MapPin, color: "violet" },
+  { id: "account", label: "Account", icon: Lock, color: "amber" },
 ];
 
 const tabColors = {
@@ -67,6 +69,11 @@ const tabColors = {
     active: "bg-violet-600 text-white shadow-lg shadow-violet-500/25",
     inactive: "text-gray-500 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/10",
     icon: "text-violet-500",
+  },
+  amber: {
+    active: "bg-amber-600 text-white shadow-lg shadow-amber-500/25",
+    inactive: "text-gray-500 dark:text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/10",
+    icon: "text-amber-500",
   },
 };
 
@@ -121,6 +128,7 @@ const Settings = () => {
           {activeTab === "users" && <UserManagementTab />}
           {activeTab === "import-export" && <ImportExportTab />}
           {activeTab === "add-ip" && <AddIPLocationTab />}
+          {activeTab === "account" && <AccountTab />}
         </div>
       </div>
     </DashboardLayout>
@@ -885,6 +893,117 @@ const AddIPLocationTab = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const AccountTab = () => {
+  const { user: currentUser } = useAuth();
+  const [formData, setFormData] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSuccess("");
+    setError("");
+
+    if (formData.new_password.length < 8) {
+      setError("New password must be at least 8 characters");
+      return;
+    }
+    if (formData.new_password !== formData.confirm_password) {
+      setError("New passwords do not match");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await changePassword({
+        current_password: formData.current_password,
+        new_password: formData.new_password,
+      });
+      setSuccess("Password changed successfully!");
+      setFormData({ current_password: "", new_password: "", confirm_password: "" });
+      setTimeout(() => setSuccess(""), 4000);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to change password");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fields = [
+    { key: "current_password", label: "Current Password", placeholder: "Enter current password" },
+    { key: "new_password", label: "New Password", placeholder: "Min 8 characters" },
+    { key: "confirm_password", label: "Confirm New Password", placeholder: "Re-enter new password" },
+  ];
+
+  return (
+    <div className="max-w-md">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-amber-50 to-transparent dark:from-amber-900/10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Lock size={16} className="text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-800 dark:text-white">Change Password</h2>
+              <p className="text-[11px] text-gray-400">Signed in as {currentUser?.username}</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-5">
+          {success && (
+            <div className="flex items-center gap-2 mb-4 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs">
+              <CheckCircle size={14} />
+              Password changed successfully!
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 mb-4 p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-xl text-rose-700 dark:text-rose-400 text-xs">
+              <AlertCircle size={14} />
+              {error}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-3.5">
+            {fields.map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">{label}</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Lock size={14} className="text-gray-400" />
+                  </div>
+                  <input
+                    type={showPasswords[key] ? "text" : "password"}
+                    value={formData[key]}
+                    onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
+                    placeholder={placeholder}
+                    required
+                    className="w-full pl-9 pr-9 py-2.5 bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition text-gray-800 dark:text-white placeholder:text-gray-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswords({ ...showPasswords, [key]: !showPasswords[key] })}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition"
+                  >
+                    {showPasswords[key] ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-amber-600 to-amber-700 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-amber-700 hover:to-amber-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
+            >
+              {loading ? <><RefreshCw size={14} className="animate-spin" /> Updating...</> : <><Lock size={14} /> Update Password</>}
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };

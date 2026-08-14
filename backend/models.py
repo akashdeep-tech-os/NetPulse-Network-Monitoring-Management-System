@@ -75,6 +75,28 @@ class Device(Base):
     owner = relationship("User", back_populates="devices")
     group = relationship("DeviceGroup", back_populates="devices")
     status_history = relationship("DeviceStatusHistory", back_populates="device", cascade="all, delete-orphan")
+    checks = relationship("DeviceCheck", back_populates="device", cascade="all, delete-orphan")
+
+
+class DeviceCheck(Base):
+    __tablename__ = "device_checks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    check_type = Column(String, nullable=False)  # icmp | tcp | http
+    port = Column(Integer, nullable=True)
+    url = Column(String, nullable=True)
+    timeout_seconds = Column(Integer, default=5)
+    enabled = Column(Boolean, default=True)
+    status = Column(String, default="Offline")
+    latency = Column(Float, nullable=True)
+    error = Column(String, nullable=True)
+    consecutive_failures = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    device = relationship("Device", back_populates="checks")
 
 
 class DeviceStatusHistory(Base):
