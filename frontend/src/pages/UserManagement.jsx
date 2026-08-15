@@ -30,8 +30,8 @@ import { useAuth } from "../routes/AuthContext.jsx";
 
 const UserManagement = () => {
   const { hasPermission, user: currentUser } = useAuth();
-  const canManageUsers = hasPermission("manage_users");
-  const canCreateUsers = hasPermission("create_users");
+  const canManageUsers = hasPermission("users.manage");
+  const canCreateUsers = hasPermission("users.create");
 
   const [formData, setFormData] = useState({
     username: "",
@@ -138,19 +138,40 @@ const UserManagement = () => {
 
   const getRoleBadge = (roleName) => {
     switch (roleName) {
-      case "admin":
+      case "org_owner":
         return {
           bg: "bg-red-50",
           text: "text-red-700",
           border: "border-red-200",
           dot: "bg-red-500",
         };
-      case "user":
+      case "org_admin":
+        return {
+          bg: "bg-purple-50",
+          text: "text-purple-700",
+          border: "border-purple-200",
+          dot: "bg-purple-500",
+        };
+      case "network_manager":
         return {
           bg: "bg-blue-50",
           text: "text-blue-700",
           border: "border-blue-200",
           dot: "bg-blue-500",
+        };
+      case "network_operator":
+        return {
+          bg: "bg-cyan-50",
+          text: "text-cyan-700",
+          border: "border-cyan-200",
+          dot: "bg-cyan-500",
+        };
+      case "viewer":
+        return {
+          bg: "bg-green-50",
+          text: "text-green-700",
+          border: "border-green-200",
+          dot: "bg-green-500",
         };
       default:
         return {
@@ -170,8 +191,10 @@ const UserManagement = () => {
         u.role_name.toLowerCase().includes(searchQuery.toLowerCase())),
   );
 
-  const adminCount = users.filter((u) => u.role_name === "admin").length;
-  const userCount = users.filter((u) => u.role_name === "user").length;
+  const adminCount = users.filter(
+    (u) => u.role_name === "org_owner" || u.role_name === "org_admin",
+  ).length;
+  const userCount = users.length - adminCount;
 
   return (
     <DashboardLayout>
@@ -367,9 +390,7 @@ const UserManagement = () => {
                         <option value="">Select role (default: user)</option>
                         {roles.map((role) => (
                           <option key={role.id} value={role.id}>
-                            {role.name.charAt(0).toUpperCase() +
-                              role.name.slice(1)}{" "}
-                            - {role.description}
+                            {role.display_name || role.name}
                           </option>
                         ))}
                       </select>
@@ -476,7 +497,7 @@ const UserManagement = () => {
                               <div className="flex items-center gap-3">
                                 <div
                                   className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0 ${
-                                    user.role_name === "admin"
+                                    ["org_owner","org_admin"].includes(user.role_name)
                                       ? "bg-gradient-to-br from-red-500 to-red-600"
                                       : "bg-gradient-to-br from-blue-500 to-blue-600"
                                   }`}
@@ -508,8 +529,7 @@ const UserManagement = () => {
                                   >
                                     {roles.map((role) => (
                                       <option key={role.id} value={role.id}>
-                                        {role.name.charAt(0).toUpperCase() +
-                                          role.name.slice(1)}
+                                        {role.display_name || role.name}
                                       </option>
                                     ))}
                                   </select>
@@ -608,7 +628,7 @@ const UserManagement = () => {
                             <div className="flex items-center gap-2 min-w-0">
                               <div
                                 className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0 ${
-                                  user.role_name === "admin"
+                                  ["org_owner","org_admin"].includes(user.role_name)
                                     ? "bg-gradient-to-br from-red-500 to-red-600"
                                     : "bg-gradient-to-br from-blue-500 to-blue-600"
                                 }`}
@@ -656,8 +676,7 @@ const UserManagement = () => {
                                 >
                                   {roles.map((role) => (
                                     <option key={role.id} value={role.id}>
-                                      {role.name.charAt(0).toUpperCase() +
-                                        role.name.slice(1)}
+                                      {role.display_name || role.name}
                                     </option>
                                   ))}
                                 </select>

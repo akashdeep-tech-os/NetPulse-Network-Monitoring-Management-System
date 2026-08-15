@@ -18,10 +18,12 @@ const Header = ({
   onSearchChange,
   onPingAll,
   onMenuToggle,
+  canPing = true,
 }) => {
-  const { logout, isAdmin, user } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const roleName = user?.role_name || (user?.is_platform_admin ? "Platform Admin" : "User");
 
   return (
     <header className="h-14 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 shadow-sm px-4 lg:px-6 flex items-center gap-3 shrink-0">
@@ -51,15 +53,17 @@ const Header = ({
       {/* Right Actions */}
       <div className="flex items-center gap-2 ml-auto shrink-0">
         {/* Ping All */}
-        <button
-          onClick={onPingAll}
-          disabled={pinging}
-          title="Ping All Devices"
-          className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-sm rounded-xl transition font-medium disabled:opacity-50"
-        >
-          <RefreshCw size={15} className={pinging ? "animate-spin" : ""} />
-          <span className="hidden sm:inline">{pinging ? "Pinging..." : "Ping All"}</span>
-        </button>
+        {canPing && (
+          <button
+            onClick={onPingAll}
+            disabled={pinging}
+            title="Run All Checks Now"
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-sm rounded-xl transition font-medium disabled:opacity-50"
+          >
+            <RefreshCw size={15} className={pinging ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">{pinging ? "Running..." : "Run Checks"}</span>
+          </button>
+        )}
 
         {/* Notifications */}
         <button
@@ -91,7 +95,7 @@ const Header = ({
                 {user?.username || "User"}
               </h4>
               <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                {isAdmin ? "Administrator" : "User"}
+                {roleName}
               </p>
             </div>
           </button>

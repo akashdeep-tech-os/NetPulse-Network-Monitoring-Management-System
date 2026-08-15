@@ -137,8 +137,8 @@ const Settings = () => {
 
 const UserManagementTab = () => {
   const { hasPermission, user: currentUser } = useAuth();
-  const canManageUsers = hasPermission("manage_users");
-  const canCreateUsers = hasPermission("create_users");
+  const canManageUsers = hasPermission("users.manage");
+  const canCreateUsers = hasPermission("users.create");
 
   const [formData, setFormData] = useState({
     username: "",
@@ -243,10 +243,16 @@ const UserManagementTab = () => {
 
   const getRoleBadge = (roleName) => {
     switch (roleName) {
-      case "admin":
+      case "org_owner":
         return { bg: "bg-rose-50 dark:bg-rose-900/20", text: "text-rose-600 dark:text-rose-400", icon: Crown };
-      case "user":
+      case "org_admin":
+        return { bg: "bg-purple-50 dark:bg-purple-900/20", text: "text-purple-600 dark:text-purple-400", icon: Shield };
+      case "network_manager":
         return { bg: "bg-blue-50 dark:bg-blue-900/20", text: "text-blue-600 dark:text-blue-400", icon: UserCheck };
+      case "network_operator":
+        return { bg: "bg-cyan-50 dark:bg-cyan-900/20", text: "text-cyan-600 dark:text-cyan-400", icon: UserCheck };
+      case "viewer":
+        return { bg: "bg-green-50 dark:bg-green-900/20", text: "text-green-600 dark:text-green-400", icon: UserCheck };
       default:
         return { bg: "bg-gray-50 dark:bg-gray-800", text: "text-gray-600 dark:text-gray-400", icon: Shield };
     }
@@ -259,8 +265,10 @@ const UserManagementTab = () => {
       (u.role_name && u.role_name.toLowerCase().includes(searchQuery.toLowerCase())),
   );
 
-  const adminCount = users.filter((u) => u.role_name === "admin").length;
-  const userCount = users.filter((u) => u.role_name === "user").length;
+  const adminCount = users.filter(
+    (u) => u.role_name === "org_owner" || u.role_name === "org_admin",
+  ).length;
+  const userCount = users.length - adminCount;
 
   return (
     <div className="space-y-5">
@@ -368,9 +376,9 @@ const UserManagementTab = () => {
                       onChange={(e) => setFormData({ ...formData, role_id: e.target.value })}
                       className="w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none transition text-gray-800 dark:text-white"
                     >
-                      <option value="">Select role (default: user)</option>
+                      <option value="">Select role (default: viewer)</option>
                       {roles.map((role) => (
-                        <option key={role.id} value={role.id}>{role.name.charAt(0).toUpperCase() + role.name.slice(1)} - {role.description}</option>
+                        <option key={role.id} value={role.id}>{role.display_name || role.name}</option>
                       ))}
                     </select>
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -428,7 +436,7 @@ const UserManagementTab = () => {
                         <tr key={user.id} className="border-b border-gray-50 dark:border-slate-700/50 hover:bg-gray-50/50 dark:hover:bg-slate-700/30 transition-colors">
                           <td className="py-3.5 px-5">
                             <div className="flex items-center gap-3">
-                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0 ${user.role_name === "admin" ? "bg-gradient-to-br from-rose-500 to-rose-600" : "bg-gradient-to-br from-blue-500 to-blue-600"}`}>
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0 ${["org_owner","org_admin"].includes(user.role_name) ? "bg-gradient-to-br from-rose-500 to-rose-600" : "bg-gradient-to-br from-blue-500 to-blue-600"}`}>
                                 {user.username.charAt(0).toUpperCase()}
                               </div>
                               <div>
@@ -442,7 +450,7 @@ const UserManagementTab = () => {
                             {editingUser === user.id ? (
                               <div className="flex items-center gap-1.5">
                                 <select value={editRoleId} onChange={(e) => setEditRoleId(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white">
-                                  {roles.map((role) => (<option key={role.id} value={role.id}>{role.name.charAt(0).toUpperCase() + role.name.slice(1)}</option>))}
+                                  {roles.map((role) => (<option key={role.id} value={role.id}>{role.display_name || role.name}</option>))}
                                 </select>
                                 <button onClick={() => handleRoleChange(user.id, editRoleId)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Save"><Check size={14} /></button>
                                 <button onClick={() => setEditingUser(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg transition" title="Cancel"><X size={14} /></button>
@@ -615,7 +623,7 @@ const ImportExportTab = () => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
       {/* Import */}
-      {hasPermission("import_devices") && (
+      {hasPermission("devices.edit") && (
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
           <div className="px-6 py-5 bg-gradient-to-r from-emerald-50 to-transparent dark:from-emerald-900/10 border-b border-gray-100 dark:border-slate-700">
             <div className="flex items-center gap-3">
@@ -648,7 +656,7 @@ const ImportExportTab = () => {
       )}
 
       {/* Export */}
-      {hasPermission("export_devices") && (
+      {hasPermission("devices.view") && (
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 overflow-hidden">
           <div className="px-6 py-5 bg-gradient-to-r from-blue-50 to-transparent dark:from-blue-900/10 border-b border-gray-100 dark:border-slate-700">
             <div className="flex items-center gap-3">
@@ -679,7 +687,7 @@ const ImportExportTab = () => {
 
 const AddIPLocationTab = () => {
   const { hasPermission } = useAuth();
-  const canManage = hasPermission("create_devices") || hasPermission("manage_users");
+  const canManage = hasPermission("devices.edit");
 
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -738,7 +746,22 @@ const AddIPLocationTab = () => {
       d.ip_address.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
-  const onlineCount = devices.filter((d) => d.status === "Online").length;
+  const onlineCount = devices.filter(
+    (d) => d.status === "Online" || d.status === "Warning",
+  ).length;
+
+  const STATUS_BADGE = {
+    Online: "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400",
+    Offline: "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400",
+    Warning: "bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400",
+    Unknown: "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300",
+  };
+  const STATUS_DOT = {
+    Online: "bg-emerald-500",
+    Offline: "bg-rose-500",
+    Warning: "bg-yellow-500",
+    Unknown: "bg-gray-400",
+  };
 
   if (loading) {
     return (
@@ -815,8 +838,8 @@ const AddIPLocationTab = () => {
                     <td className="py-3.5 px-5 font-semibold text-gray-800 dark:text-white text-[13px]">{device.name}</td>
                     <td className="py-3.5 px-5 text-gray-600 dark:text-gray-300 font-mono text-xs">{device.ip_address}</td>
                     <td className="py-3.5 px-5">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ${device.status === "Online" ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400" : "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${device.status === "Online" ? "bg-emerald-500" : "bg-rose-500"}`} />
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold ${STATUS_BADGE[device.status] || STATUS_BADGE.Unknown}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[device.status] || STATUS_DOT.Unknown}`} />
                         {device.status}
                       </span>
                     </td>

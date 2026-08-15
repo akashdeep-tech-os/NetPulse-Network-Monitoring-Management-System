@@ -7,6 +7,7 @@ const DashboardLayout = ({
   children,
   offlineCount = 0,
   pinging = false,
+  canPing = true,
   searchQuery,
   onSearchChange,
   onPingAll,
@@ -30,6 +31,7 @@ const DashboardLayout = ({
         <Header
           offlineCount={offlineCount}
           pinging={pinging}
+          canPing={canPing}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
           onPingAll={onPingAll}

@@ -1,70 +1,83 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { api } from "../api.js";
+import { api, login as apiLogin, logout as apiLogout, getMe, getOrganization } from "../api.js";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [isAdmin, setIsAdmin] = useState(() => {
-    const saved = localStorage.getItem("is_admin");
-    return saved === "true";
+  const [token, setToken] = useState(() => localStorage.getItem("np_token"));
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("np_user") || "null");
+    } catch {
+      return null;
+    }
   });
-  const [permissions, setPermissions] = useState(() => {
-    const saved = localStorage.getItem("permissions");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [user, setUser] = useState(null);
+  const [org, setOrg] = useState(null);
+  const [loading, setLoading] = useState(!!token);
 
   const hasPermission = useCallback(
     (permissionName) => {
-      if (isAdmin) return true;
-      return permissions.includes(permissionName);
+      const perms = user?.permissions || [];
+      if (user?.is_platform_admin) return true;
+      return perms.includes(permissionName);
     },
-    [isAdmin, permissions]
+    [user],
   );
 
-  const login = (newToken, newPermissions, newIsAdmin) => {
-    localStorage.setItem("token", newToken);
-    localStorage.setItem("permissions", JSON.stringify(newPermissions));
-    localStorage.setItem("is_admin", String(newIsAdmin));
-    setToken(newToken);
-    setPermissions(newPermissions);
-    setIsAdmin(newIsAdmin);
+  const login = async (formData) => {
+    const res = await apiLogin(formData);
+    const data = res.data;
+    localStorage.setItem("np_token", data.access_token);
+    localStorage.setItem("np_refresh_token", data.refresh_token);
+    localStorage.setItem("np_user", JSON.stringify(data.user));
+    localStorage.setItem("np_permissions", JSON.stringify(data.user?.permissions || []));
+    setToken(data.access_token);
+    setUser(data.user);
+    return data;
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("permissions");
-    localStorage.removeItem("is_admin");
+  const logout = async () => {
+    const refreshToken = localStorage.getItem("np_refresh_token");
+    if (refreshToken) {
+      try {
+        await apiLogout(refreshToken);
+      } catch {
+        // ignore
+      }
+    }
+    localStorage.removeItem("np_token");
+    localStorage.removeItem("np_refresh_token");
+    localStorage.removeItem("np_user");
+    localStorage.removeItem("np_permissions");
     setToken(null);
-    setPermissions([]);
-    setIsAdmin(false);
+    setUser(null);
+    setOrg(null);
     window.location.href = "/";
   };
 
   useEffect(() => {
     if (!token) return;
-
-    const fetchUser = async () => {
+    const fetchSession = async () => {
       try {
-        const res = await api.get("/auth/me");
-        setIsAdmin(res.data.is_admin);
-        setPermissions(res.data.permissions || []);
-        setUser(res.data);
-        localStorage.setItem("is_admin", String(res.data.is_admin));
-        localStorage.setItem("permissions", JSON.stringify(res.data.permissions || []));
+        const [meRes, orgRes] = await Promise.allSettled([getMe(), getOrganization()]);
+        if (meRes.status === "fulfilled") {
+          const me = meRes.value.data;
+          setUser(me);
+          localStorage.setItem("np_user", JSON.stringify(me));
+          localStorage.setItem("np_permissions", JSON.stringify(me.permissions || []));
+        }
+        if (orgRes.status === "fulfilled") setOrg(orgRes.value.data);
       } catch {
-        setIsAdmin(false);
-        setPermissions([]);
-        setUser(null);
+        // interceptor handles 401 → redirect
+      } finally {
+        setLoading(false);
       }
     };
-
-    fetchUser();
+    fetchSession();
   }, [token]);
 
   return (
-    <AuthContext.Provider value={{ token, isAdmin, permissions, user, hasPermission, login, logout }}>
+    <AuthContext.Provider value={{ token, user, org, setOrg, hasPermission, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

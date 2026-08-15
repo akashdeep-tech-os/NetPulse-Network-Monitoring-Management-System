@@ -14,7 +14,7 @@ import {
   Clock,
 } from "lucide-react";
 import DashboardLayout from "../layout/DashboardLayout";
-import { getAlertLogs, clearAlertLogs } from "../api.js";
+import { getAlertLogs, clearAlertLogs, acknowledgeAlertLog, resolveAlertLog } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
 
 const SEVERITY_CONFIG = {
@@ -43,7 +43,7 @@ const SEVERITY_CONFIG = {
 
 const AlertHistory = () => {
   const { hasPermission } = useAuth();
-  const canManage = hasPermission("manage_users");
+  const canManage = hasPermission("alerts.manage");
 
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ const AlertHistory = () => {
     setLoading(true);
     try {
       const res = await getAlertLogs(200);
-      setLogs(res.data);
+      setLogs(res.data.logs || res.data);
     } catch (err) {
       console.error("Failed to fetch alert logs:", err);
     } finally {
@@ -237,10 +237,51 @@ const AlertHistory = () => {
                             </span>
                           )}
                           <span className="flex items-center gap-1">
-                            {log.sent_email && <Mail size={10} className="text-blue-400" />}
-                            {log.sent_slack && <MessageSquare size={10} className="text-purple-400" />}
-                            {!log.sent_email && !log.sent_slack && "No notifications sent"}
+                            {(log.sent_channels || []).length > 0 ? (
+                              log.sent_channels.map((ch) => (
+                                <span key={ch} className="text-[10px] text-gray-400 dark:text-gray-500">
+                                  {ch}
+                                </span>
+                              ))
+                            ) : (
+                              "No notifications sent"
+                            )}
                           </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          {log.status === "open" && canManage && (
+                            <>
+                              <button
+                                onClick={async () => {
+                                  await acknowledgeAlertLog(log.id);
+                                  fetchLogs();
+                                }}
+                                className="px-2 py-1 text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition font-medium"
+                              >
+                                Acknowledge
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  await resolveAlertLog(log.id);
+                                  fetchLogs();
+                                }}
+                                className="px-2 py-1 text-[10px] bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 rounded-lg transition font-medium"
+                              >
+                                Resolve
+                              </button>
+                            </>
+                          )}
+                          {log.status !== "open" && (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                log.status === "resolved"
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              }`}
+                            >
+                              {log.status}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

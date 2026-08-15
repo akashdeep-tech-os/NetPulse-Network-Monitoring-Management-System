@@ -7,6 +7,11 @@ import DeviceGroups from "../pages/DeviceGroups";
 import AlertSettings from "../pages/AlertSettings";
 import AlertHistory from "../pages/AlertHistory";
 import Settings from "../pages/Settings";
+import AiAssistant from "../pages/AiAssistant";
+import ApiKeys from "../pages/ApiKeys";
+import Billing from "../pages/Billing";
+import AuditLogs from "../pages/AuditLogs";
+import PlatformAdmin from "../pages/PlatformAdmin";
 import { useAuth } from "./AuthContext.jsx";
 
 function ProtectedRoute({ children }) {
@@ -24,6 +29,12 @@ function GuestRoute({ children }) {
 function PermissionRoute({ permission, children }) {
   const { hasPermission } = useAuth();
   if (!hasPermission(permission)) return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
+function PlatformRoute({ children }) {
+  const { user } = useAuth();
+  if (!user?.is_platform_admin) return <Navigate to="/dashboard" replace />;
   return children;
 }
 
@@ -49,10 +60,21 @@ export default function AppRoutes() {
       />
 
       <Route
+        path="/ai"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="ai.view">
+              <AiAssistant />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/scanner"
         element={
           <ProtectedRoute>
-            <PermissionRoute permission="port_scanning">
+            <PermissionRoute permission="checks.manage">
               <PortScanner />
             </PermissionRoute>
           </ProtectedRoute>
@@ -81,7 +103,9 @@ export default function AppRoutes() {
         path="/reports"
         element={
           <ProtectedRoute>
-            <Reports />
+            <PermissionRoute permission="reports.view">
+              <Reports />
+            </PermissionRoute>
           </ProtectedRoute>
         }
       />
@@ -90,7 +114,7 @@ export default function AppRoutes() {
         path="/groups"
         element={
           <ProtectedRoute>
-            <PermissionRoute permission="create_devices">
+            <PermissionRoute permission="devices.view">
               <DeviceGroups />
             </PermissionRoute>
           </ProtectedRoute>
@@ -101,7 +125,7 @@ export default function AppRoutes() {
         path="/alerts"
         element={
           <ProtectedRoute>
-            <PermissionRoute permission="manage_users">
+            <PermissionRoute permission="alerts.view">
               <AlertSettings />
             </PermissionRoute>
           </ProtectedRoute>
@@ -112,9 +136,53 @@ export default function AppRoutes() {
         path="/alert-history"
         element={
           <ProtectedRoute>
-            <PermissionRoute permission="manage_users">
+            <PermissionRoute permission="alerts.view">
               <AlertHistory />
             </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/api-keys"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="api_keys.manage">
+              <ApiKeys />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/billing"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="billing.view">
+              <Billing />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/audit"
+        element={
+          <ProtectedRoute>
+            <PermissionRoute permission="audit.view">
+              <AuditLogs />
+            </PermissionRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/platform"
+        element={
+          <ProtectedRoute>
+            <PlatformRoute>
+              <PlatformAdmin />
+            </PlatformRoute>
           </ProtectedRoute>
         }
       />

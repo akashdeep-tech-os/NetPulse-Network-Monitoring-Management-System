@@ -1,64 +1,79 @@
 import { useState } from "react";
-import { Lock, User, Shield } from "lucide-react";
-import { login } from "../api.js";
+import { Lock, User, Shield, Activity } from "lucide-react";
 import { useAuth } from "../routes/AuthContext.jsx";
 import { useTheme } from "../routes/ThemeContext.jsx";
+import { useNavigate } from "react-router-dom";
 
 const Login = () => {
-  const { login: authLogin } = useAuth();
+  const { login } = useAuth();
   const { theme } = useTheme();
-  const [formData, setFormData] = useState({
-    username: "",
-    password: "",
-  });
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({ username: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
     try {
       const loginData = new FormData();
       loginData.append("username", formData.username);
       loginData.append("password", formData.password);
 
-      const res = await login(loginData);
-      authLogin(res.data.access_token, res.data.permissions, res.data.is_admin);
+      await login(loginData);
+      navigate("/dashboard");
     } catch (err) {
-      alert(err.response?.data?.detail || "Something went wrong");
+      setError(err.response?.data?.detail || "Invalid username or password");
     } finally {
       setLoading(false);
     }
   };
 
+  const inputCls =
+    "w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition " +
+    (theme === "dark"
+      ? "bg-slate-700 border-slate-600 text-white placeholder:text-gray-500"
+      : "bg-white border-gray-200 text-gray-900 placeholder:text-gray-400");
+
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 ${
-      theme === "dark" ? "bg-slate-900" : "bg-gradient-to-br from-slate-100 to-slate-200"
-    }`}>
-      <div className={`rounded-2xl shadow-xl p-6 sm:p-8 w-full max-w-sm ${
-        theme === "dark" ? "bg-slate-800" : "bg-white"
-      }`}>
+    <div
+      className={`min-h-screen flex items-center justify-center p-4 ${
+        theme === "dark" ? "bg-slate-900" : "bg-gradient-to-br from-slate-100 to-slate-200"
+      }`}
+    >
+      <div
+        className={`rounded-2xl shadow-xl p-6 sm:p-8 w-full max-w-sm ${
+          theme === "dark" ? "bg-slate-800" : "bg-white"
+        }`}
+      >
         <div className="text-center mb-8">
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
-            theme === "dark" ? "bg-blue-900/30" : "bg-blue-100"
-          }`}>
-            <Shield size={28} className={`${
-              theme === "dark" ? "text-blue-400" : "text-blue-600"
-            }`} />
+          <div
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
+              theme === "dark" ? "bg-blue-900/30" : "bg-blue-100"
+            }`}
+          >
+            <Shield size={28} className={theme === "dark" ? "text-blue-400" : "text-blue-600"} />
           </div>
-          <h1 className={`text-xl font-bold ${
-            theme === "dark" ? "text-white" : "text-gray-900"
-          }`}>Surakshit</h1>
-          <p className={`text-sm mt-1 ${
-            theme === "dark" ? "text-gray-400" : "text-gray-500"
-          }`}>Ping Monitor</p>
+          <h1 className={`text-xl font-bold ${theme === "dark" ? "text-white" : "text-gray-900"}`}>
+            NetPulse
+          </h1>
+          <p className={`text-sm mt-1 flex items-center justify-center gap-1.5 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+            <Activity size={13} className="text-blue-500" />
+            Network Monitoring Platform
+          </p>
         </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-xs">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className={`block text-xs font-medium mb-1.5 ${
-              theme === "dark" ? "text-gray-400" : "text-gray-600"
-            }`}>
+            <label className={`block text-xs font-medium mb-1.5 ${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>
               Username
             </label>
             <div className="relative">
@@ -68,24 +83,16 @@ const Login = () => {
               <input
                 type="text"
                 value={formData.username}
-                onChange={(e) =>
-                  setFormData({ ...formData, username: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 placeholder="Enter username"
                 required
-                className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition ${
-                  theme === "dark"
-                    ? "bg-slate-700 border-slate-600 text-white placeholder:text-gray-500"
-                    : "bg-white border-gray-200 text-gray-900 placeholder:text-gray-400"
-                }`}
+                className={inputCls}
               />
             </div>
           </div>
 
           <div className="mb-6">
-            <label className={`block text-xs font-medium mb-1.5 ${
-              theme === "dark" ? "text-gray-400" : "text-gray-600"
-            }`}>
+            <label className={`block text-xs font-medium mb-1.5 ${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>
               Password
             </label>
             <div className="relative">
@@ -95,16 +102,10 @@ const Login = () => {
               <input
                 type="password"
                 value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 placeholder="Enter password"
                 required
-                className={`w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition ${
-                  theme === "dark"
-                    ? "bg-slate-700 border-slate-600 text-white placeholder:text-gray-500"
-                    : "bg-white border-gray-200 text-gray-900 placeholder:text-gray-400"
-                }`}
+                className={inputCls}
               />
             </div>
           </div>

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Databases (dev data, never commit)
+*.db
+*.sqlite3
+
+# Secrets
+admin_credentials.txt
+.secret_key
+.env
+
+# Logs
+*.log
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Legacy packaging artifacts
+PingMonitor.spec
+build/
+dist/
+installer.iss
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

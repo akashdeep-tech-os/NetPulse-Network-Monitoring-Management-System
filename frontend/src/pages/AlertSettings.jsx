@@ -9,12 +9,14 @@ import {
   ToggleLeft,
   ToggleRight,
   Mail,
-  Smartphone,
   Send,
   RefreshCw,
   AlertTriangle,
   Clock,
   Shield,
+  Webhook,
+  MessagesSquare,
+  MessageSquare,
 } from "lucide-react";
 import DashboardLayout from "../layout/DashboardLayout";
 import {
@@ -43,9 +45,32 @@ const TARGET_TYPES = [
   { value: "device", label: "Add Specific IP" },
 ];
 
+const CHANNELS = [
+  { value: "in_app", label: "In-App", icon: <Bell size={14} /> },
+  { value: "email", label: "Email", icon: <Mail size={14} /> },
+  { value: "slack", label: "Slack", icon: <MessagesSquare size={14} /> },
+  { value: "teams", label: "Teams", icon: <MessageSquare size={14} /> },
+  { value: "webhook", label: "Webhook", icon: <Webhook size={14} /> },
+];
+
+const CHANNEL_LABEL = Object.fromEntries(CHANNELS.map((c) => [c.value, c.label]));
+
+const DEFAULT_FORM = {
+  name: "",
+  rule_type: "device_offline",
+  target_type: "all",
+  target_id: null,
+  target_ip: "",
+  threshold_value: 100,
+  severity: "warning",
+  cooldown_minutes: 5,
+  channels: ["in_app", "email"],
+  enabled: true,
+};
+
 const AlertSettings = () => {
   const { hasPermission } = useAuth();
-  const canManage = hasPermission("manage_users");
+  const canManage = hasPermission("alerts.manage");
 
   const [rules, setRules] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -57,22 +82,15 @@ const AlertSettings = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [testResult, setTestResult] = useState(null);
   const [testingChannel, setTestingChannel] = useState(null);
-  const [emailRecipients, setEmailRecipients] = useState("");
-  const [mobileNumber, setMobileNumber] = useState("");
+  const [configFields, setConfigFields] = useState({
+    email_recipients: "",
+    slack_webhook_url: "",
+    teams_webhook_url: "",
+    webhook_url: "",
+  });
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    rule_type: "device_offline",
-    target_type: "all",
-    target_id: null,
-    target_ip: "",
-    threshold_value: 100,
-    cooldown_minutes: 5,
-    notify_email: true,
-    notify_mobile: false,
-    enabled: true,
-  });
+  const [formData, setFormData] = useState({ ...DEFAULT_FORM });
 
   const fetchData = async () => {
     setLoading(true);
@@ -86,8 +104,12 @@ const AlertSettings = () => {
       if (rulesRes.status === "fulfilled") setRules(rulesRes.value.data);
       if (configRes.status === "fulfilled") {
         setConfig(configRes.value.data);
-        setEmailRecipients(configRes.value.data.email_recipients || "");
-        setMobileNumber(configRes.value.data.mobile_number || "");
+        setConfigFields({
+          email_recipients: configRes.value.data.email_recipients || "",
+          slack_webhook_url: configRes.value.data.slack_webhook_url || "",
+          teams_webhook_url: configRes.value.data.teams_webhook_url || "",
+          webhook_url: configRes.value.data.webhook_url || "",
+        });
       }
       if (devicesRes.status === "fulfilled") setDevices(devicesRes.value.data);
       if (groupsRes.status === "fulfilled") setGroups(groupsRes.value.data);
@@ -114,7 +136,7 @@ const AlertSettings = () => {
       }
       setShowModal(false);
       setEditingRule(null);
-      resetForm();
+      setFormData({ ...DEFAULT_FORM });
       fetchData();
     } catch (err) {
       alert(err.response?.data?.detail || "Failed to save alert rule");
@@ -145,9 +167,9 @@ const AlertSettings = () => {
     setTestResult(null);
     try {
       const res = await testAlertNotification({ channel });
-      setTestResult({ channel, ...res.data });
+      setTestResult({ channel, success: true, message: res.data?.message || "Test sent successfully" });
     } catch (err) {
-      setTestResult({ channel, success: false, message: "Test failed" });
+      setTestResult({ channel, success: false, message: err.response?.data?.detail || "Test failed" });
     } finally {
       setTestingChannel(null);
       setTimeout(() => setTestResult(null), 5000);
@@ -158,10 +180,7 @@ const AlertSettings = () => {
     setSavingConfig(true);
     setConfigSaved(false);
     try {
-      await updateAlertConfig({
-        email_recipients: emailRecipients,
-        mobile_number: mobileNumber,
-      });
+      await updateAlertConfig(configFields);
       setConfigSaved(true);
       fetchData();
       setTimeout(() => setConfigSaved(false), 3000);
@@ -172,21 +191,6 @@ const AlertSettings = () => {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      rule_type: "device_offline",
-      target_type: "all",
-      target_id: null,
-      target_ip: "",
-      threshold_value: 100,
-      cooldown_minutes: 5,
-      notify_email: true,
-      notify_mobile: false,
-      enabled: true,
-    });
-  };
-
   const openEditModal = (rule) => {
     setEditingRule(rule);
     setFormData({
@@ -195,10 +199,10 @@ const AlertSettings = () => {
       target_type: rule.target_type,
       target_id: rule.target_id,
       target_ip: rule.target_ip || "",
-      threshold_value: rule.threshold_value || 100,
+      threshold_value: rule.threshold_value ?? 100,
+      severity: rule.severity || "warning",
       cooldown_minutes: rule.cooldown_minutes,
-      notify_email: rule.notify_email,
-      notify_mobile: rule.notify_mobile,
+      channels: rule.channels?.length ? rule.channels : ["in_app"],
       enabled: rule.enabled,
     });
     setShowModal(true);
@@ -206,13 +210,21 @@ const AlertSettings = () => {
 
   const getTargetName = (rule) => {
     if (rule.target_type === "all") return "All Devices";
-    if (rule.target_type === "group" && rule.target_name) return rule.target_name;
-    if (rule.target_type === "device" && rule.target_name) return rule.target_name;
+    if (rule.target_name) return rule.target_name;
     return "Unknown";
   };
 
   const getRuleTypeLabel = (type) => {
     return RULE_TYPES.find((r) => r.value === type)?.label || type;
+  };
+
+  const toggleChannel = (channel) => {
+    setFormData((prev) => ({
+      ...prev,
+      channels: prev.channels.includes(channel)
+        ? prev.channels.filter((c) => c !== channel)
+        : [...prev.channels, channel],
+    }));
   };
 
   if (loading && !config) {
@@ -247,7 +259,7 @@ const AlertSettings = () => {
             <button
               onClick={() => {
                 setEditingRule(null);
-                resetForm();
+                setFormData({ ...DEFAULT_FORM });
                 setShowModal(true);
               }}
               className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition"
@@ -291,18 +303,15 @@ const AlertSettings = () => {
                 </label>
                 <input
                   type="text"
-                  value={emailRecipients}
-                  onChange={(e) => setEmailRecipients(e.target.value)}
+                  value={configFields.email_recipients}
+                  onChange={(e) => setConfigFields({ ...configFields, email_recipients: e.target.value })}
                   placeholder="admin@example.com, ops@example.com"
                   className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400"
                 />
-                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                  Alerts will be sent to these email addresses
-                </p>
               </div>
               <button
                 onClick={() => handleTest("email")}
-                disabled={testingChannel === "email" || !emailRecipients.trim()}
+                disabled={testingChannel === "email" || !configFields.email_recipients.trim()}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition disabled:opacity-50"
               >
                 {testingChannel === "email" ? (
@@ -314,16 +323,16 @@ const AlertSettings = () => {
               </button>
             </div>
 
-            {/* Mobile Config */}
+            {/* Webhook Config */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Smartphone size={16} className="text-green-500" />
+                <Webhook size={16} className="text-green-500" />
                 <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  Mobile Notifications
+                  Webhook / Slack / Teams
                 </h4>
-                {config?.mobile_configured ? (
+                {config?.webhook_configured || config?.slack_configured || config?.teams_configured ? (
                   <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-medium rounded-full">
-                    SMS Ready
+                    Ready
                   </span>
                 ) : (
                   <span className="px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-[10px] font-medium rounded-full">
@@ -331,33 +340,46 @@ const AlertSettings = () => {
                   </span>
                 )}
               </div>
-              <div>
-                <label className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  Phone Number
-                </label>
+              <div className="grid grid-cols-1 gap-2">
                 <input
-                  type="tel"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  placeholder="+91 98765 43210"
+                  type="url"
+                  value={configFields.slack_webhook_url}
+                  onChange={(e) => setConfigFields({ ...configFields, slack_webhook_url: e.target.value })}
+                  placeholder="Slack webhook URL"
                   className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400"
                 />
-                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                  Alerts will be sent via SMS to this number
-                </p>
+                <input
+                  type="url"
+                  value={configFields.teams_webhook_url}
+                  onChange={(e) => setConfigFields({ ...configFields, teams_webhook_url: e.target.value })}
+                  placeholder="Teams webhook URL"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400"
+                />
+                <input
+                  type="url"
+                  value={configFields.webhook_url}
+                  onChange={(e) => setConfigFields({ ...configFields, webhook_url: e.target.value })}
+                  placeholder="Generic webhook URL"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400"
+                />
               </div>
-              <button
-                onClick={() => handleTest("mobile")}
-                disabled={testingChannel === "mobile" || !mobileNumber.trim()}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 rounded-lg transition disabled:opacity-50"
-              >
-                {testingChannel === "mobile" ? (
-                  <RefreshCw size={12} className="animate-spin" />
-                ) : (
-                  <Send size={12} />
-                )}
-                Send Test
-              </button>
+              <div className="flex items-center gap-2">
+                {["slack", "teams", "webhook"].map((ch) => (
+                  <button
+                    key={ch}
+                    onClick={() => handleTest(ch)}
+                    disabled={testingChannel === ch || !configFields[`${ch}_webhook_url`]?.trim()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40 rounded-lg transition disabled:opacity-50"
+                  >
+                    {testingChannel === ch ? (
+                      <RefreshCw size={12} className="animate-spin" />
+                    ) : (
+                      <Send size={12} />
+                    )}
+                    Test {ch[0].toUpperCase() + ch.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -442,6 +464,17 @@ const AlertSettings = () => {
                       <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 text-[10px] rounded font-medium">
                         {getRuleTypeLabel(rule.rule_type)}
                       </span>
+                      <span
+                        className={`px-1.5 py-0.5 text-[10px] rounded font-medium ${
+                          rule.severity === "critical"
+                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
+                            : rule.severity === "warning"
+                              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400"
+                              : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                        }`}
+                      >
+                        {rule.severity}
+                      </span>
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400 dark:text-gray-500">
                       <span className="flex items-center gap-1">
@@ -452,18 +485,11 @@ const AlertSettings = () => {
                         <Clock size={10} />
                         {rule.cooldown_minutes}m cooldown
                       </span>
-                      {rule.notify_email && (
-                        <span className="flex items-center gap-1">
-                          <Mail size={10} />
-                          Email
+                      {(rule.channels || []).map((ch) => (
+                        <span key={ch} className="flex items-center gap-1">
+                          {CHANNEL_LABEL[ch] || ch}
                         </span>
-                      )}
-                      {rule.notify_mobile && (
-                        <span className="flex items-center gap-1">
-                          <Smartphone size={10} />
-                          Mobile
-                        </span>
-                      )}
+                      ))}
                     </div>
                   </div>
                   {canManage && (
@@ -506,7 +532,6 @@ const AlertSettings = () => {
                 </button>
               </div>
               <div className="p-5 space-y-4 max-h-[70vh] overflow-auto">
-                {/* Rule Name */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Rule Name
@@ -521,7 +546,6 @@ const AlertSettings = () => {
                   />
                 </div>
 
-                {/* Rule Type */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Alert When
@@ -539,7 +563,6 @@ const AlertSettings = () => {
                   </select>
                 </div>
 
-                {/* Threshold for high latency */}
                 {formData.rule_type === "high_latency" && (
                   <div>
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
@@ -556,7 +579,6 @@ const AlertSettings = () => {
                   </div>
                 )}
 
-                {/* Target */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Apply To
@@ -576,7 +598,6 @@ const AlertSettings = () => {
                   </select>
                 </div>
 
-                {/* Target Selection */}
                 {formData.target_type === "group" && (
                   <div>
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
@@ -613,13 +634,24 @@ const AlertSettings = () => {
                       placeholder="e.g., 192.168.1.100"
                       className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white placeholder:text-gray-400 font-mono"
                     />
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                      Enter the IP address of the specific device
-                    </p>
                   </div>
                 )}
 
-                {/* Cooldown */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Severity
+                  </label>
+                  <select
+                    value={formData.severity}
+                    onChange={(e) => setFormData({ ...formData, severity: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white"
+                  >
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Cooldown (minutes)
@@ -638,36 +670,23 @@ const AlertSettings = () => {
                   </p>
                 </div>
 
-                {/* Notification Channels */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
                     Notify Via
                   </label>
-                  <div className="flex gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.notify_email}
-                        onChange={(e) =>
-                          setFormData({ ...formData, notify_email: e.target.checked })
-                        }
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600"
-                      />
-                      <Mail size={14} className="text-gray-500" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Email</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.notify_mobile}
-                        onChange={(e) =>
-                          setFormData({ ...formData, notify_mobile: e.target.checked })
-                        }
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600"
-                      />
-                      <Smartphone size={14} className="text-gray-500" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Mobile</span>
-                    </label>
+                  <div className="flex flex-wrap gap-3">
+                    {CHANNELS.map((ch) => (
+                      <label key={ch.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.channels.includes(ch.value)}
+                          onChange={() => toggleChannel(ch.value)}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        {ch.icon}
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{ch.label}</span>
+                      </label>
+                    ))}
                   </div>
                 </div>
               </div>

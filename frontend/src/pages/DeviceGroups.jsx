@@ -17,10 +17,17 @@ import {
   updateGroup,
   deleteGroup,
   getDevices,
-  assignDevicesToGroup,
+  updateDevice,
   pingGroupDevices,
 } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
+
+const STATUS_BADGE = {
+  Online: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  Offline: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  Warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+  Unknown: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+};
 
 const COLORS = [
   "#3B82F6",
@@ -35,7 +42,7 @@ const COLORS = [
 
 const DeviceGroups = () => {
   const { hasPermission } = useAuth();
-  const canManage = hasPermission("create_devices") || hasPermission("manage_users");
+  const canManage = hasPermission("groups.manage");
 
   const [groups, setGroups] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -98,7 +105,11 @@ const DeviceGroups = () => {
   const handleAssign = async () => {
     if (!assignModal) return;
     try {
-      await assignDevicesToGroup(assignModal.id, selectedDeviceIds);
+      await Promise.all(
+        selectedDeviceIds.map((deviceId) =>
+          updateDevice(deviceId, { group_id: assignModal.id }),
+        ),
+      );
       setAssignModal(null);
       setSelectedDeviceIds([]);
       fetchData();
@@ -203,7 +214,7 @@ const DeviceGroups = () => {
           {groups.map((group) => {
             const groupDevices = getGroupDevices(group.id);
             const onlineCount = groupDevices.filter(
-              (d) => d.status === "Online"
+              (d) => d.status === "Online" || d.status === "Warning",
             ).length;
 
             return (
@@ -284,11 +295,7 @@ const DeviceGroups = () => {
                             {device.name}
                           </span>
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              device.status === "Online"
-                                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            }`}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_BADGE[device.status] || STATUS_BADGE.Unknown}`}
                           >
                             {device.status}
                           </span>
@@ -356,11 +363,7 @@ const DeviceGroups = () => {
                           {device.name}
                         </span>
                         <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            device.status === "Online"
-                              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                          }`}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_BADGE[device.status] || STATUS_BADGE.Unknown}`}
                         >
                           {device.status}
                         </span>
@@ -494,11 +497,7 @@ const DeviceGroups = () => {
                       </p>
                     </div>
                     <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        device.status === "Online"
-                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                      }`}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_BADGE[device.status] || STATUS_BADGE.Unknown}`}
                     >
                       {device.status}
                     </span>

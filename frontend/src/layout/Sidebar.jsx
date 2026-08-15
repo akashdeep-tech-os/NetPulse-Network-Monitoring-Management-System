@@ -13,6 +13,11 @@ import {
   History,
   Settings,
   Shield,
+  Sparkles,
+  KeyRound,
+  CreditCard,
+  ListChecks,
+  Globe,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../routes/AuthContext.jsx";
@@ -26,23 +31,10 @@ const Sidebar = ({
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAdmin, hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const activePage =
-    location.pathname === "/scanner"
-      ? "scanner"
-      : location.pathname === "/reports"
-        ? "reports"
-        : location.pathname === "/groups"
-          ? "groups"
-          : location.pathname === "/alerts"
-            ? "alerts"
-            : location.pathname === "/alert-history"
-              ? "alert-history"
-              : location.pathname === "/settings"
-                ? "settings"
-                : "dashboard";
+  const activePage = location.pathname.split("/")[1] || "dashboard";
 
   const menus = [
     {
@@ -50,60 +42,86 @@ const Sidebar = ({
       label: "Dashboard",
       icon: <LayoutDashboard size={20} />,
       path: "/dashboard",
+      show: true,
+    },
+    {
+      name: "ai",
+      label: "AI Assistant",
+      icon: <Sparkles size={20} />,
+      path: "/ai",
+      show: hasPermission("ai.view"),
     },
     {
       name: "reports",
       label: "Reports",
       icon: <BarChart3 size={20} />,
       path: "/reports",
+      show: hasPermission("reports.view"),
     },
-    ...(hasPermission("port_scanning")
-      ? [
-          {
-            name: "scanner",
-            label: "Port Scanner",
-            icon: <ScanSearch size={20} />,
-            path: "/scanner",
-          },
-        ]
-      : []),
-    ...(hasPermission("create_devices") || hasPermission("manage_users")
-      ? [
-          {
-            name: "groups",
-            label: "Add IP Groups",
-            icon: <FolderOpen size={20} />,
-            path: "/groups",
-          },
-        ]
-      : []),
-    ...(hasPermission("manage_users")
-      ? [
-          {
-            name: "alerts",
-            label: "Add Alert",
-            icon: <Bell size={20} />,
-            path: "/alerts",
-          },
-          {
-            name: "alert-history",
-            label: "Alert History",
-            icon: <History size={20} />,
-            path: "/alert-history",
-          },
-        ]
-      : []),
-    ...(hasPermission("manage_users") || hasPermission("create_users")
-      ? [
-          {
-            name: "settings",
-            label: "Settings",
-            icon: <Settings size={20} />,
-            path: "/settings",
-          },
-        ]
-      : []),
-  ];
+    {
+      name: "scanner",
+      label: "Port Scanner",
+      icon: <ScanSearch size={20} />,
+      path: "/scanner",
+      show: hasPermission("checks.manage"),
+    },
+    {
+      name: "groups",
+      label: "IP Groups",
+      icon: <FolderOpen size={20} />,
+      path: "/groups",
+      show: hasPermission("devices.view"),
+    },
+    {
+      name: "alerts",
+      label: "Alert Rules",
+      icon: <Bell size={20} />,
+      path: "/alerts",
+      show: hasPermission("alerts.view"),
+    },
+    {
+      name: "alert-history",
+      label: "Alert History",
+      icon: <History size={20} />,
+      path: "/alert-history",
+      show: hasPermission("alerts.view"),
+    },
+    {
+      name: "api-keys",
+      label: "API Keys",
+      icon: <KeyRound size={20} />,
+      path: "/api-keys",
+      show: hasPermission("api_keys.manage"),
+    },
+    {
+      name: "billing",
+      label: "Billing & Plan",
+      icon: <CreditCard size={20} />,
+      path: "/billing",
+      show: hasPermission("billing.view"),
+    },
+    {
+      name: "audit",
+      label: "Audit Logs",
+      icon: <ListChecks size={20} />,
+      path: "/audit",
+      show: hasPermission("audit.view"),
+    },
+    {
+      name: "settings",
+      label: "Settings",
+      icon: <Settings size={20} />,
+      path: "/settings",
+      show: hasPermission("users.view") || hasPermission("devices.view"),
+    },
+    {
+      name: "platform",
+      label: "Platform Admin",
+      icon: <Globe size={20} />,
+      path: "/platform",
+      show: user?.is_platform_admin,
+    },
+  ].filter((m) => m.show);
 
   const handleNav = (path) => {
     navigate(path);
@@ -136,9 +154,9 @@ const Sidebar = ({
                 <Shield size={18} className="text-white" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm font-bold truncate">Surakshit</h1>
+                <h1 className="text-sm font-bold truncate">NetPulse</h1>
                 <p className="text-[10px] text-slate-400 truncate">
-                  Ping Monitor
+                  Network Monitoring
                 </p>
               </div>
             </div>
