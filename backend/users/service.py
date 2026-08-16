@@ -7,6 +7,43 @@ from sqlalchemy.orm import Session
 from core.security import hash_password
 from models import Role, User
 
+ROLE_RANK = {
+    "viewer": 0,
+    "network_operator": 1,
+    "network_manager": 2,
+    "org_admin": 3,
+    "org_owner": 4,
+    "platform_admin": 5,
+}
+
+
+def _role_rank(user: User) -> int:
+    if user.is_platform_admin:
+        return ROLE_RANK["platform_admin"]
+    if user.role is None:
+        return ROLE_RANK["viewer"]
+    return ROLE_RANK.get(user.role.name, ROLE_RANK["viewer"])
+
+
+def can_assign_role(actor: Optional[User], role: Role) -> bool:
+    """Actor may only assign roles strictly below their own rank. Super admin can assign any."""
+    if actor is None:
+        return False
+    if actor.is_platform_admin:
+        return True
+    return ROLE_RANK.get(role.name, ROLE_RANK["viewer"]) < _role_rank(actor)
+
+
+def can_manage_user(actor: Optional[User], target: User) -> bool:
+    """Actor may only manage users at or below their own rank; platform admins are untouchable."""
+    if actor is None:
+        return False
+    if actor.is_platform_admin:
+        return True
+    if target.is_platform_admin:
+        return False
+    return _role_rank(target) <= _role_rank(actor)
+
 
 def get_user_roles(db: Session) -> list[Role]:
     return (

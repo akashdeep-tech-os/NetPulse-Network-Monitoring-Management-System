@@ -44,6 +44,11 @@ import {
   updateDevice,
   deleteDevice,
   changePassword,
+  getPlatformOrgs,
+  getPlatformOrgUsers,
+  createPlatformOrgUser,
+  updatePlatformOrgUser,
+  deletePlatformOrgUser,
 } from "../api.js";
 import { useAuth } from "../routes/AuthContext.jsx";
 
@@ -78,7 +83,11 @@ const tabColors = {
 };
 
 const Settings = () => {
+  const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState("users");
+  const visibleTabs = TABS.filter(
+    (t) => t.id !== "users" || hasPermission("users.view"),
+  );
 
   return (
     <DashboardLayout>
@@ -102,7 +111,7 @@ const Settings = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 p-1.5 bg-gray-100/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const colors = tabColors[tab.color];
             const isActive = activeTab === tab.id;
@@ -139,6 +148,21 @@ const UserManagementTab = () => {
   const { hasPermission, user: currentUser } = useAuth();
   const canManageUsers = hasPermission("users.manage");
   const canCreateUsers = hasPermission("users.create");
+  const isPlatformAdmin = currentUser?.is_platform_admin;
+
+  const ROLE_RANK = {
+    viewer: 0,
+    network_operator: 1,
+    network_manager: 2,
+    org_admin: 3,
+    org_owner: 4,
+    platform_admin: 5,
+  };
+  const rankOf = (roleName) => ROLE_RANK[roleName] ?? 0;
+  const myRank = isPlatformAdmin ? 5 : rankOf(currentUser?.role_name);
+  const canAssign = (roleName) => isPlatformAdmin || rankOf(roleName) < myRank;
+  const canManageTarget = (target) =>
+    isPlatformAdmin || (target.role_name !== "platform_admin" && rankOf(target.role_name) <= myRank);
 
   const [formData, setFormData] = useState({
     username: "",
@@ -152,6 +176,8 @@ const UserManagementTab = () => {
   const [error, setError] = useState("");
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [orgs, setOrgs] = useState([]);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
   const [editingUser, setEditingUser] = useState(null);
   const [editRoleId, setEditRoleId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -160,8 +186,13 @@ const UserManagementTab = () => {
   const refetchUsers = async () => {
     if (!canManageUsers) return;
     try {
-      const res = await getUsers();
-      setUsers(res.data);
+      if (isPlatformAdmin && selectedOrgId) {
+        const res = await getPlatformOrgUsers(selectedOrgId);
+        setUsers(res.data);
+      } else {
+        const res = await getUsers();
+        setUsers(res.data);
+      }
     } catch (err) {
       console.error("Failed to fetch users:", err);
     }
@@ -175,6 +206,18 @@ const UserManagementTab = () => {
       } catch (err) {
         console.error("Failed to fetch roles:", err);
       }
+      if (isPlatformAdmin) {
+        try {
+          const orgsRes = await getPlatformOrgs();
+          setOrgs(orgsRes.data);
+          if (orgsRes.data.length > 0) {
+            setSelectedOrgId((prev) => prev || String(orgsRes.data[0].id));
+          }
+        } catch (err) {
+          console.error("Failed to fetch organizations:", err);
+        }
+        return;
+      }
       if (canManageUsers) {
         try {
           const usersRes = await getUsers();
@@ -185,7 +228,14 @@ const UserManagementTab = () => {
       }
     };
     loadData();
-  }, [canManageUsers]);
+  }, [canManageUsers, isPlatformAdmin]);
+
+  useEffect(() => {
+    if (!(isPlatformAdmin && selectedOrgId)) return;
+    getPlatformOrgUsers(selectedOrgId)
+      .then((res) => setUsers(res.data))
+      .catch((err) => console.error("Failed to fetch users:", err));
+  }, [selectedOrgId, isPlatformAdmin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -199,6 +249,12 @@ const UserManagementTab = () => {
       return;
     }
 
+    if (isPlatformAdmin && !selectedOrgId) {
+      setError("Please select an organization");
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         username: formData.username,
@@ -208,7 +264,11 @@ const UserManagementTab = () => {
       if (formData.role_id) {
         payload.role_id = parseInt(formData.role_id);
       }
-      await createUser(payload);
+      if (isPlatformAdmin) {
+        await createPlatformOrgUser(selectedOrgId, payload);
+      } else {
+        await createUser(payload);
+      }
       setSuccess(true);
       setFormData({ username: "", email: "", password: "", role_id: "" });
       setShowPassword(false);
@@ -223,7 +283,11 @@ const UserManagementTab = () => {
 
   const handleRoleChange = async (userId, newRoleId) => {
     try {
-      await updateUserRole(userId, parseInt(newRoleId));
+      if (isPlatformAdmin && selectedOrgId) {
+        await updatePlatformOrgUser(selectedOrgId, userId, { role_id: parseInt(newRoleId) });
+      } else {
+        await updateUserRole(userId, parseInt(newRoleId));
+      }
       setEditingUser(null);
       refetchUsers();
     } catch (err) {
@@ -233,7 +297,11 @@ const UserManagementTab = () => {
 
   const handleDeleteUser = async (userId) => {
     try {
-      await deleteUser(userId);
+      if (isPlatformAdmin && selectedOrgId) {
+        await deletePlatformOrgUser(selectedOrgId, userId);
+      } else {
+        await deleteUser(userId);
+      }
       setDeleteConfirm(null);
       refetchUsers();
     } catch (err) {
@@ -377,15 +445,38 @@ const UserManagementTab = () => {
                       className="w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none transition text-gray-800 dark:text-white"
                     >
                       <option value="">Select role (default: viewer)</option>
-                      {roles.map((role) => (
-                        <option key={role.id} value={role.id}>{role.display_name || role.name}</option>
-                      ))}
+                      {roles
+                        .filter((role) => canAssign(role.name))
+                        .map((role) => (
+                          <option key={role.id} value={role.id}>{role.display_name || role.name}</option>
+                        ))}
                     </select>
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                       <ChevronDown size={14} className="text-gray-400" />
                     </div>
                   </div>
                 </div>
+                {isPlatformAdmin && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1.5">Organization</label>
+                    <div className="relative">
+                      <select
+                        value={selectedOrgId}
+                        onChange={(e) => setSelectedOrgId(e.target.value)}
+                        required
+                        className="w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none transition text-gray-800 dark:text-white"
+                      >
+                        <option value="">Select organization</option>
+                        {orgs.map((org) => (
+                          <option key={org.id} value={org.id}>{org.name}</option>
+                        ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        <ChevronDown size={14} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-blue-700 hover:to-blue-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">
                   {loading ? <><RefreshCw size={14} className="animate-spin" /> Creating...</> : <><UserPlus size={14} /> Create User</>}
                 </button>
@@ -450,7 +541,9 @@ const UserManagementTab = () => {
                             {editingUser === user.id ? (
                               <div className="flex items-center gap-1.5">
                                 <select value={editRoleId} onChange={(e) => setEditRoleId(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 text-gray-800 dark:text-white">
-                                  {roles.map((role) => (<option key={role.id} value={role.id}>{role.display_name || role.name}</option>))}
+                                  {roles
+                                    .filter((role) => canAssign(role.name))
+                                    .map((role) => (<option key={role.id} value={role.id}>{role.display_name || role.name}</option>))}
                                 </select>
                                 <button onClick={() => handleRoleChange(user.id, editRoleId)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Save"><Check size={14} /></button>
                                 <button onClick={() => setEditingUser(null)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg transition" title="Cancel"><X size={14} /></button>
@@ -464,7 +557,7 @@ const UserManagementTab = () => {
                           </td>
                           <td className="py-3.5 px-5">
                             <div className="flex items-center justify-end gap-0.5">
-                              {user.id !== currentUser?.id && (
+                              {user.id !== currentUser?.id && canManageTarget(user) && (
                                 <>
                                   <button onClick={() => { setEditingUser(user.id); setEditRoleId(user.role_id || ""); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition" title="Edit Role"><Edit2 size={14} /></button>
                                   <button onClick={() => setDeleteConfirm(user.id)} className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition" title="Delete User"><Trash2 size={14} /></button>

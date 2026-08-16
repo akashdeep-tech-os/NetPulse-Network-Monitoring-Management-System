@@ -18,6 +18,7 @@ import {
   CreditCard,
   ListChecks,
   Globe,
+  Users,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../routes/AuthContext.jsx";
@@ -106,6 +107,13 @@ const Sidebar = ({
       icon: <ListChecks size={20} />,
       path: "/audit",
       show: hasPermission("audit.view"),
+    },
+    {
+      name: "users",
+      label: "User Management",
+      icon: <Users size={20} />,
+      path: "/users",
+      show: hasPermission("users.view"),
     },
     {
       name: "settings",

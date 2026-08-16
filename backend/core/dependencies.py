@@ -136,7 +136,7 @@ def require_permission(permission: str):
         if ctx.user is None:
             raise PERMISSION_DENIED
         user = ctx.user
-        if user.is_platform_admin and permission.startswith("platform."):
+        if user.is_platform_admin:
             return ctx
         names = set()
         if user.role is not None:

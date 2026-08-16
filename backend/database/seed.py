@@ -138,6 +138,64 @@ def _seed_demo_organization(db: Session) -> None:
         logger.info("Demo organization + demo user created (demo / Demo@1234)")
 
 
+def _seed_role_users(db: Session) -> None:
+    """Seeds one user per role: super admin, org admin, regular user, viewer."""
+    org = db.query(Organization).filter(Organization.slug == "demo").first()
+    if org is None:
+        logger.warning("Demo organization missing; skipping role users seed")
+        return
+    users = [
+        {
+            "username": "superadmin",
+            "email": "superadmin@netpulse.local",
+            "password": "Super@1234",
+            "full_name": "Super Admin",
+            "role": "platform_admin",
+            "is_platform_admin": True,
+        },
+        {
+            "username": "orgadmin",
+            "email": "orgadmin@netpulse.local",
+            "password": "Admin@1234",
+            "full_name": "Organization Admin",
+            "role": "org_admin",
+            "is_platform_admin": False,
+        },
+        {
+            "username": "user",
+            "email": "user@netpulse.local",
+            "password": "User@1234",
+            "full_name": "Regular User",
+            "role": "network_operator",
+            "is_platform_admin": False,
+        },
+        {
+            "username": "viewer",
+            "email": "viewer@netpulse.local",
+            "password": "Viewer@1234",
+            "full_name": "Viewer",
+            "role": "viewer",
+            "is_platform_admin": False,
+        },
+    ]
+    for data in users:
+        if db.query(User).filter(User.username == data["username"]).first() is not None:
+            continue
+        role = db.query(Role).filter(Role.name == data["role"]).first()
+        db.add(User(
+            organization_id=org.id,
+            username=data["username"],
+            email=data["email"],
+            hashed_password=hash_password(data["password"]),
+            full_name=data["full_name"],
+            role_id=role.id if role else None,
+            is_platform_admin=data["is_platform_admin"],
+            is_active=True,
+            is_email_verified=True,
+        ))
+        logger.info("Role user '%s' created (%s)", data["username"], data["role"])
+
+
 def run_seed() -> None:
     db = SessionLocal()
     try:
@@ -146,6 +204,7 @@ def run_seed() -> None:
         _seed_plans(db)
         _seed_platform_admin(db)
         _seed_demo_organization(db)
+        _seed_role_users(db)
         db.commit()
         logger.info("Database seeded")
     finally:

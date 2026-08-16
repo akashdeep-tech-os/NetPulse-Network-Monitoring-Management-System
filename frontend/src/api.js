@@ -209,6 +209,10 @@ export const getPlatformOrgs = () => api.get("/platform/organizations");
 export const createPlatformOrg = (data) => api.post("/platform/organizations", null, { params: data });
 export const setPlatformOrgStatus = (orgId, status) =>
   api.patch(`/platform/organizations/${orgId}/status`, null, { params: { status } });
+export const getPlatformOrgUsers = (orgId) => api.get(`/platform/organizations/${orgId}/users`);
+export const createPlatformOrgUser = (orgId, data) => api.post(`/platform/organizations/${orgId}/users`, data);
+export const updatePlatformOrgUser = (orgId, userId, data) => api.patch(`/platform/organizations/${orgId}/users/${userId}`, data);
+export const deletePlatformOrgUser = (orgId, userId) => api.delete(`/platform/organizations/${orgId}/users/${userId}`);
 export const getPlatformPlans = () => api.get("/platform/plans");
 export const createPlatformPlan = (data) => api.post("/platform/plans", data);
 export const updatePlatformPlan = (planId, data) => api.patch(`/platform/plans/${planId}`, data);

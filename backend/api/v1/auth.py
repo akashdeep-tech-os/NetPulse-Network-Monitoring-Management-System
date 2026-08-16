@@ -122,4 +122,7 @@ def me(auth=Depends(get_auth_context), db: Session = Depends(get_db)):
     user = auth.user
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    out = UserOut.model_validate(user)
+    out.role_name = _role_name(user)
+    out.permissions = users_service.get_user_permission_names(user)
+    return out

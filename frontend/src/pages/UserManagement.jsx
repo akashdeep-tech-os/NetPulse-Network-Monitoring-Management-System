@@ -24,14 +24,35 @@ import {
   updateUserRole,
   deleteUser,
   getRoles,
+  getPlatformOrgs,
+  getPlatformOrgUsers,
+  createPlatformOrgUser,
+  updatePlatformOrgUser,
+  deletePlatformOrgUser,
 } from "../api.js";
 import DashboardLayout from "../layout/DashboardLayout";
 import { useAuth } from "../routes/AuthContext.jsx";
+
+const ROLE_RANK = {
+  viewer: 0,
+  network_operator: 1,
+  network_manager: 2,
+  org_admin: 3,
+  org_owner: 4,
+  platform_admin: 5,
+};
+
+const rankOf = (roleName) => ROLE_RANK[roleName] ?? 0;
 
 const UserManagement = () => {
   const { hasPermission, user: currentUser } = useAuth();
   const canManageUsers = hasPermission("users.manage");
   const canCreateUsers = hasPermission("users.create");
+  const isPlatformAdmin = currentUser?.is_platform_admin;
+  const myRank = isPlatformAdmin ? 5 : rankOf(currentUser?.role_name);
+  const canAssign = (roleName) => isPlatformAdmin || rankOf(roleName) < myRank;
+  const canManageTarget = (target) =>
+    isPlatformAdmin || (target.role_name !== "platform_admin" && rankOf(target.role_name) <= myRank);
 
   const [formData, setFormData] = useState({
     username: "",
@@ -45,6 +66,8 @@ const UserManagement = () => {
   const [error, setError] = useState("");
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [orgs, setOrgs] = useState([]);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
   const [editingUser, setEditingUser] = useState(null);
   const [editRoleId, setEditRoleId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -53,8 +76,13 @@ const UserManagement = () => {
   const refetchUsers = async () => {
     if (!canManageUsers) return;
     try {
-      const res = await getUsers();
-      setUsers(res.data);
+      if (isPlatformAdmin && selectedOrgId) {
+        const res = await getPlatformOrgUsers(selectedOrgId);
+        setUsers(res.data);
+      } else {
+        const res = await getUsers();
+        setUsers(res.data);
+      }
     } catch (err) {
       console.error("Failed to fetch users:", err);
     }
@@ -69,6 +97,19 @@ const UserManagement = () => {
         console.error("Failed to fetch roles:", err);
       }
 
+      if (isPlatformAdmin) {
+        try {
+          const orgsRes = await getPlatformOrgs();
+          setOrgs(orgsRes.data);
+          if (orgsRes.data.length > 0) {
+            setSelectedOrgId((prev) => prev || String(orgsRes.data[0].id));
+          }
+        } catch (err) {
+          console.error("Failed to fetch organizations:", err);
+        }
+        return;
+      }
+
       if (canManageUsers) {
         try {
           const usersRes = await getUsers();
@@ -80,7 +121,14 @@ const UserManagement = () => {
     };
 
     loadData();
-  }, [canManageUsers]);
+  }, [canManageUsers, isPlatformAdmin]);
+
+  useEffect(() => {
+    if (!(isPlatformAdmin && selectedOrgId)) return;
+    getPlatformOrgUsers(selectedOrgId)
+      .then((res) => setUsers(res.data))
+      .catch((err) => console.error("Failed to fetch users:", err));
+  }, [selectedOrgId, isPlatformAdmin]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -94,6 +142,12 @@ const UserManagement = () => {
       return;
     }
 
+    if (isPlatformAdmin && !selectedOrgId) {
+      setError("Please select an organization");
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         username: formData.username,
@@ -103,7 +157,11 @@ const UserManagement = () => {
       if (formData.role_id) {
         payload.role_id = parseInt(formData.role_id);
       }
-      await createUser(payload);
+      if (isPlatformAdmin) {
+        await createPlatformOrgUser(selectedOrgId, payload);
+      } else {
+        await createUser(payload);
+      }
       setSuccess(true);
       setFormData({ username: "", email: "", password: "", role_id: "" });
       setShowPassword(false);
@@ -118,7 +176,11 @@ const UserManagement = () => {
 
   const handleRoleChange = async (userId, newRoleId) => {
     try {
-      await updateUserRole(userId, parseInt(newRoleId));
+      if (isPlatformAdmin && selectedOrgId) {
+        await updatePlatformOrgUser(selectedOrgId, userId, { role_id: parseInt(newRoleId) });
+      } else {
+        await updateUserRole(userId, parseInt(newRoleId));
+      }
       setEditingUser(null);
       refetchUsers();
     } catch (err) {
@@ -128,7 +190,11 @@ const UserManagement = () => {
 
   const handleDeleteUser = async (userId) => {
     try {
-      await deleteUser(userId);
+      if (isPlatformAdmin && selectedOrgId) {
+        await deletePlatformOrgUser(selectedOrgId, userId);
+      } else {
+        await deleteUser(userId);
+      }
       setDeleteConfirm(null);
       refetchUsers();
     } catch (err) {
@@ -388,17 +454,45 @@ const UserManagement = () => {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none transition bg-white"
                       >
                         <option value="">Select role (default: user)</option>
-                        {roles.map((role) => (
-                          <option key={role.id} value={role.id}>
-                            {role.display_name || role.name}
-                          </option>
-                        ))}
+                        {roles
+                          .filter((role) => canAssign(role.name))
+                          .map((role) => (
+                            <option key={role.id} value={role.id}>
+                              {role.display_name || role.name}
+                            </option>
+                          ))}
                       </select>
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                         <ChevronDown size={14} className="text-gray-400" />
                       </div>
                     </div>
                   </div>
+
+                  {isPlatformAdmin && (
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-500 uppercase mb-1">
+                        Organization
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={selectedOrgId}
+                          onChange={(e) => setSelectedOrgId(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none transition bg-white"
+                        >
+                          <option value="">Select organization</option>
+                          {orgs.map((org) => (
+                            <option key={org.id} value={org.id}>
+                              {org.name}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <ChevronDown size={14} className="text-gray-400" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <button
                     type="submit"
@@ -527,11 +621,13 @@ const UserManagement = () => {
                                     }
                                     className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                                   >
-                                    {roles.map((role) => (
-                                      <option key={role.id} value={role.id}>
-                                        {role.display_name || role.name}
-                                      </option>
-                                    ))}
+                                    {roles
+                                      .filter((role) => canAssign(role.name))
+                                      .map((role) => (
+                                        <option key={role.id} value={role.id}>
+                                          {role.display_name || role.name}
+                                        </option>
+                                      ))}
                                   </select>
                                   <button
                                     onClick={() =>
@@ -580,7 +676,7 @@ const UserManagement = () => {
                             </td>
                             <td className="py-3 px-5">
                               <div className="flex items-center justify-end gap-0.5">
-                                {user.id !== currentUser?.id && (
+                                {user.id !== currentUser?.id && canManageTarget(user) && (
                                   <>
                                     <button
                                       onClick={() => {
@@ -644,7 +740,7 @@ const UserManagement = () => {
                                 </p>
                               </div>
                             </div>
-                            {user.id !== currentUser?.id && (
+                            {user.id !== currentUser?.id && canManageTarget(user) && (
                               <div className="flex items-center gap-0.5 shrink-0">
                                 <button
                                   onClick={() => {
@@ -674,11 +770,13 @@ const UserManagement = () => {
                                   }
                                   className="px-2 py-1 border border-gray-200 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                                 >
-                                  {roles.map((role) => (
-                                    <option key={role.id} value={role.id}>
-                                      {role.display_name || role.name}
-                                    </option>
-                                  ))}
+                                  {roles
+                                    .filter((role) => canAssign(role.name))
+                                    .map((role) => (
+                                      <option key={role.id} value={role.id}>
+                                        {role.display_name || role.name}
+                                      </option>
+                                    ))}
                                 </select>
                                 <button
                                   onClick={() =>

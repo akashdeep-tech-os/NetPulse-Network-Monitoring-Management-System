@@ -5,8 +5,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from audit.service import log_action
 from billing import service as billing_service
-from core.dependencies import get_db, require_platform_admin
+from core.dependencies import AuthContext, get_auth_context, get_db, require_platform_admin
 from core.security import utcnow
 from models import (
     AIInsight,
@@ -20,7 +21,17 @@ from models import (
     Subscription,
     User,
 )
-from schemas import Message, PlanCreate, PlanOut, PlanUpdate, PlatformStats, SettingUpdate
+from schemas import (
+    Message,
+    PlanCreate,
+    PlanOut,
+    PlanUpdate,
+    PlatformStats,
+    SettingUpdate,
+    UserCreate,
+    UserUpdate,
+)
+from users import service as users_service
 
 router = APIRouter(prefix="/platform", tags=["platform"], dependencies=[Depends(require_platform_admin)])
 
@@ -120,6 +131,68 @@ def set_org_status(org_id: int, status: str, db: Session = Depends(get_db)):
     org.status = status
     db.commit()
     return {"id": org.id, "status": org.status}
+
+
+@router.get("/organizations/{org_id}/users")
+def list_org_users(org_id: int, db: Session = Depends(get_db)):
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    out = []
+    for u in users_service.list_org_users(db, org_id):
+        out.append({
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role_id": u.role_id,
+            "role_name": u.role.name if u.role else None,
+            "permissions": users_service.get_user_permission_names(u),
+            "is_active": u.is_active,
+            "last_login_at": u.last_login_at,
+            "created_at": u.created_at,
+        })
+    return out
+
+
+@router.post("/organizations/{org_id}/users", response_model=Message)
+def create_org_user(org_id: int, body: UserCreate, db: Session = Depends(get_db)):
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    if body.role_id is not None:
+        role = users_service.get_role_by_id(db, body.role_id)
+        if role is None or role.scope != "organization":
+            raise HTTPException(status_code=400, detail="Invalid role")
+    sub = db.query(Subscription).filter(Subscription.organization_id == org_id).first()
+    plan = db.query(Plan).filter(Plan.id == (sub.plan_id if sub else org.plan_id)).first()
+    user = users_service.create_user(
+        db, org_id, body.username, body.email, body.password, body.role_id,
+        full_name=body.full_name, plan_max_users=plan.max_users if plan else 5,
+    )
+    log_action(db, "user.create", "user", str(user.id), organization_id=org_id)
+    db.commit()
+    return Message(message=f"User {body.username} created in {org.name}")
+
+
+@router.patch("/organizations/{org_id}/users/{user_id}", response_model=Message)
+def update_org_user(org_id: int, user_id: int, body: UserUpdate, db: Session = Depends(get_db)):
+    if db.query(Organization).filter(Organization.id == org_id).first() is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    users_service.update_org_user(db, org_id, user_id, **body.model_dump(exclude_unset=True))
+    log_action(db, "user.update", "user", str(user_id), organization_id=org_id)
+    db.commit()
+    return Message(message="User updated")
+
+
+@router.delete("/organizations/{org_id}/users/{user_id}", response_model=Message)
+def delete_org_user(org_id: int, user_id: int, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    if db.query(Organization).filter(Organization.id == org_id).first() is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    users_service.delete_org_user(db, org_id, user_id, auth.user)
+    log_action(db, "user.delete", "user", str(user_id), organization_id=org_id)
+    db.commit()
+    return Message(message="User deleted")
 
 
 @router.get("/plans", response_model=list[PlanOut])

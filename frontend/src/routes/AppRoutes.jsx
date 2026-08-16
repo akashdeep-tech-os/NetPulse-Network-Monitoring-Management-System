@@ -12,6 +12,7 @@ import ApiKeys from "../pages/ApiKeys";
 import Billing from "../pages/Billing";
 import AuditLogs from "../pages/AuditLogs";
 import PlatformAdmin from "../pages/PlatformAdmin";
+import UserManagement from "../pages/UserManagement";
 import { useAuth } from "./AuthContext.jsx";
 
 function ProtectedRoute({ children }) {
@@ -85,7 +86,9 @@ export default function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <Navigate to="/settings" replace />
+            <PermissionRoute permission="users.view">
+              <UserManagement />
+            </PermissionRoute>
           </ProtectedRoute>
         }
       />

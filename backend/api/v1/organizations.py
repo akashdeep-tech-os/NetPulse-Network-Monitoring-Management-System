@@ -3,7 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from audit.service import log_action
-from core.dependencies import AuthContext, get_auth_context, get_db
+from core.dependencies import (
+    AuthContext,
+    get_auth_context,
+    get_db,
+    require_permission,
+)
 from models import Organization, User
 from schemas import (
     Message,
@@ -56,7 +61,7 @@ def my_usage(auth=Depends(get_auth_context), db: Session = Depends(get_db)):
 
 
 @router.get("/me/users")
-def my_users(auth=Depends(get_auth_context), db: Session = Depends(get_db)):
+def my_users(auth=Depends(require_permission("users.view")), db: Session = Depends(get_db)):
     org = _org_or_400(auth)
     out = []
     for u in users_service.list_org_users(db, org.id):
@@ -77,8 +82,14 @@ def my_users(auth=Depends(get_auth_context), db: Session = Depends(get_db)):
 
 
 @router.post("/me/users", response_model=Message)
-def add_user(body: UserCreate, auth=Depends(get_auth_context), db: Session = Depends(get_db)):
+def add_user(body: UserCreate, auth: AuthContext = Depends(require_permission("users.create")), db: Session = Depends(get_db)):
     org = _org_or_400(auth)
+    if body.role_id is not None:
+        role = users_service.get_role_by_id(db, body.role_id)
+        if role is None or role.scope != "organization":
+            raise HTTPException(status_code=400, detail="Invalid role")
+        if not users_service.can_assign_role(auth.user, role):
+            raise HTTPException(status_code=403, detail="You cannot assign this role")
     plan = tenants_service.get_org_plan(db, org)
     user = users_service.create_user(db, org.id, body.username, body.email, body.password,
                                      body.role_id, full_name=body.full_name,
@@ -89,8 +100,17 @@ def add_user(body: UserCreate, auth=Depends(get_auth_context), db: Session = Dep
 
 
 @router.patch("/me/users/{user_id}", response_model=Message)
-def update_user(user_id: int, body: UserUpdate, auth=Depends(get_auth_context), db: Session = Depends(get_db)):
+def update_user(user_id: int, body: UserUpdate, auth: AuthContext = Depends(require_permission("users.manage")), db: Session = Depends(get_db)):
     org = _org_or_400(auth)
+    target = users_service.get_org_user(db, org.id, user_id)
+    if not users_service.can_manage_user(auth.user, target):
+        raise HTTPException(status_code=403, detail="You cannot manage this user")
+    if body.role_id is not None:
+        role = users_service.get_role_by_id(db, body.role_id)
+        if role is None or role.scope != "organization":
+            raise HTTPException(status_code=400, detail="Invalid role")
+        if not users_service.can_assign_role(auth.user, role):
+            raise HTTPException(status_code=403, detail="You cannot assign this role")
     users_service.update_org_user(db, org.id, user_id, **body.model_dump(exclude_unset=True))
     log_action(db, "user.update", "user", str(user_id), organization_id=org.id)
     db.commit()
@@ -98,9 +118,12 @@ def update_user(user_id: int, body: UserUpdate, auth=Depends(get_auth_context), 
 
 
 @router.delete("/me/users/{user_id}", response_model=Message)
-def delete_user(user_id: int, auth=Depends(get_auth_context), db: Session = Depends(get_db)):
+def delete_user(user_id: int, auth: AuthContext = Depends(require_permission("users.manage")), db: Session = Depends(get_db)):
     org = _org_or_400(auth)
-    current = db.query(User).filter(User.id == auth.user_id).first()
+    current = db.query(User).filter(User.id == (auth.user.id if auth.user else 0)).first()
+    target = users_service.get_org_user(db, org.id, user_id)
+    if not users_service.can_manage_user(auth.user, target):
+        raise HTTPException(status_code=403, detail="You cannot manage this user")
     users_service.delete_org_user(db, org.id, user_id, current)
     log_action(db, "user.delete", "user", str(user_id), organization_id=org.id)
     db.commit()
@@ -108,7 +131,7 @@ def delete_user(user_id: int, auth=Depends(get_auth_context), db: Session = Depe
 
 
 @router.get("/roles", response_model=list)
-def list_roles(auth=Depends(get_auth_context), db: Session = Depends(get_db)):
+def list_roles(auth=Depends(require_permission("users.view")), db: Session = Depends(get_db)):
     return [
         {"id": r.id, "name": r.name, "display_name": r.description, "scope": r.scope,
          "permissions": [p.name for p in r.permissions]}
